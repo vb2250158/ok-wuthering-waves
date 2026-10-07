@@ -258,7 +258,8 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         if points_boxes:
             try:
                 points = int(re.sub(r'\D', '', points_boxes[0].name))
-                self._daily_points_read_valid = 0 <= points <= 100
+                # 100 is the last reward threshold, not an activity cap.
+                self._daily_points_read_valid = bool(re.fullmatch(r'\d+', points_boxes[0].name))
             except Exception:
                 points = 0
         else:

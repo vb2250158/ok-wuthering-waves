@@ -152,7 +152,7 @@ class TestDailyProgressInspection(unittest.TestCase):
         method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'get_total_daily_points')
         scope = {'re': re, 'number_re': re.compile(r'\d+')}
         exec(compile(ast.Module(body=[method], type_ignores=[]), str(path), 'exec'), scope)
-        for text, expected, valid in [('0', 0, True), ('100', 100, True), ('101', 101, False), ('unreadable', 0, False), (None, 0, False)]:
+        for text, expected, valid in [('0', 0, True), ('100', 100, True), ('101', 101, True), ('120', 120, True), ('-1', 1, False), ('unreadable', 0, False), (None, 0, False)]:
             with self.subTest(text=text):
                 task = SimpleNamespace(ocr=lambda *args, **kwargs: [] if text is None else [SimpleNamespace(name=text)],
                                        info_set=lambda *args: None, _daily_points_read_valid=True)
