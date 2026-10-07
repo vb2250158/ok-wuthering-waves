@@ -83,10 +83,11 @@ class TestScheduleSupport(unittest.TestCase):
             and node.func.value.id == "self"
             and node.func.attr in {"run_task_by_class", "ensure_main", "_switch_to_login"}
         ]
-
         call_names = [node.func.attr for node in sorted(calls, key=lambda call: call.lineno)]
         first_daily_index = call_names.index("run_task_by_class")
-        switch_index = call_names.index("_switch_to_login")
+        # An inspection branch can switch to saved login before any daily
+        # body. Check the first switch following the normal daily body.
+        switch_index = call_names.index("_switch_to_login", first_daily_index + 1)
 
         self.assertIn("ensure_main", call_names[first_daily_index + 1:switch_index])
 
