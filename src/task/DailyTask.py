@@ -1,4 +1,7 @@
 import re
+from pathlib import Path
+
+import cv2
 
 
 from ok import Logger, TaskDisabledException
@@ -22,6 +25,8 @@ TELEPORT_AND_FARM_4C_ECHO = 'Teleport and Farm 4C Echo'
 ADDITIONAL_TASKS = 'Additional Tasks to Run After Daily Task'
 DAILY_PROGRESS_INSPECTION_ONLY = 'Daily Progress Inspection Only'
 DAILY_PROGRESS_INSPECTION_ACCOUNT = 'Daily Progress Inspection Account'
+DAILY_REWARD_STATUS_INSPECTION_ONLY = 'Daily Reward Status Inspection Only'
+DAILY_REWARD_CHECK_CENTERS = (0.392, 0.525, 0.659, 0.792, 0.925)
 
 
 class DailyTask(WWOneTimeTask, BaseCombatTask):
@@ -40,10 +45,12 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             ADDITIONAL_TASKS: [CHECK_WEEKLY_GARDEN],
             DAILY_PROGRESS_INSPECTION_ONLY: False,
             DAILY_PROGRESS_INSPECTION_ACCOUNT: '',
+            DAILY_REWARD_STATUS_INSPECTION_ONLY: False,
         }
         self.config_description = {
             DAILY_PROGRESS_INSPECTION_ONLY: 'Only inspect daily progress; do not farm or claim rewards.',
             DAILY_PROGRESS_INSPECTION_ACCOUNT: 'Optional saved-login account for inspection only; empty inspects all accounts.',
+            DAILY_REWARD_STATUS_INSPECTION_ONLY: 'Only inspect whether all five daily rewards are already claimed; never claim rewards.',
             'Which Tacet Suppression to Farm': 'The Tacet Suppression number in the F2 list.',
             'Which Forgery Challenge to Farm': 'The Forgery Challenge number in the F2 list.',
             'Material Selection': 'Resonator EXP / Weapon EXP / Shell Credit',
@@ -81,6 +88,8 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         self.description = "Login, claim monthly card, farm echo, and claim daily reward"
 
     def run(self):
+        if self.config.get(DAILY_PROGRESS_INSPECTION_ONLY, False) and self.config.get(DAILY_REWARD_STATUS_INSPECTION_ONLY, False):
+            raise ValueError('Choose one daily inspection mode at a time')
         self.validate_additional_tasks()
 
         WWOneTimeTask.run(self)
@@ -91,6 +100,11 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             readable = self.inspect_daily_progress()
             self.ensure_main()
             return readable
+
+        if self.config.get(DAILY_REWARD_STATUS_INSPECTION_ONLY, False):
+            claimed = self.inspect_daily_reward_status()
+            self.ensure_main()
+            return claimed
 
         additional_tasks = self.config.get(ADDITIONAL_TASKS) or []
         condition1 = AUTO_FARM_NIGHTMARE_NEST in additional_tasks
@@ -233,6 +247,26 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         """Read the daily page without farming or claiming any rewards."""
         self.open_daily()
         return self._daily_points_read_valid
+
+    def inspect_daily_reward_status(self):
+        """Observe already-claimed daily rewards without clicking any claim control."""
+        _, reward_ready = self.open_daily()
+        if not self._daily_points_read_valid or not reward_ready:
+            return False
+        frame = self.frame
+        template_path = Path(__file__).with_name('resources') / 'daily_reward_claimed_check.png'
+        template = cv2.imread(str(template_path))
+        if template is None:
+            raise ValueError('Daily reward claimed-check template is unavailable')
+        height, width = frame.shape[:2]
+        template = cv2.resize(template, (max(1, round(template.shape[1] * width / 3840)),
+                                         max(1, round(template.shape[0] * height / 2160))))
+        for center in DAILY_REWARD_CHECK_CENTERS:
+            if not self.find_one('daily_reward_claimed_check', threshold=0.95, template=template, frame=frame,
+                                 box=self.box_of_screen(center - 0.027, 0.85, center + 0.027, 0.915)):
+                return False
+        self.info_set('daily reward status', 'all five rewards already claimed')
+        return True
 
     def open_daily(self):
         self.log_info('open_daily')
