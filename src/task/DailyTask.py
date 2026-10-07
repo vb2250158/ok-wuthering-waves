@@ -300,7 +300,12 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             if scroll_back:
                 # Horizontal navigation inside the free reward grid; no claim
                 # or premium purchase control is touched.
-                self.scroll_relative(0.5, 0.45, 4)
+                # The live grid advances only about half a level per four
+                # notches. Pace a bounded group before retaining the next
+                # OCR input; eight total page inputs remain the hard limit.
+                for _ in range(8):
+                    self.scroll_relative(0.5, 0.45, 4)
+                    self.sleep(0.12)
                 self.sleep(1)
             else:
                 self.click_relative(0.04, 0.17, after_sleep=2)

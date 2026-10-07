@@ -81,7 +81,7 @@ class TestBattlePassStatusInspection(unittest.TestCase):
         ] * 8)
         self.assertEqual([c for c in calls if c[0] == 'scroll'], [
             ('scroll', (0.5, 0.45, 4)),
-        ] * 6)
+        ] * 48)
         self.assertFalse(any(c[0]=='swipe' for c in calls))
 
     def test_unreadable_reward_history_stops_the_bounded_sweep(self):
@@ -89,7 +89,29 @@ class TestBattlePassStatusInspection(unittest.TestCase):
             [SimpleNamespace(name='电台任务')], [SimpleNamespace(name='先约电台')], [],
         ])
         self.assertFalse(inspection_method()(task))
-        self.assertEqual(len([c for c in calls if c[0] == 'scroll']), 1)
+        self.assertEqual(len([c for c in calls if c[0] == 'scroll']), 8)
+
+    def test_slow_reward_grid_exposes_all_unlocked_levels_within_eight_inputs(self):
+        # Real .43 pages move about half a level per four-notch call. A single
+        # call per image leaves older rewards hidden even though titles match.
+        for initial in (13, 21):
+            task, calls = self.harness()
+            first = float(initial)
+            observed = []
+            def scroll(x, y, count):
+                nonlocal first
+                calls.append(('scroll', (x, y, count)))
+                first = max(1., first - .5)
+            def ocr(*args, **kw):
+                if len([c for c in calls if c[0] == 'click']) == 2:
+                    return [SimpleNamespace(name='电台任务')]
+                level = int(first)
+                observed.append(set(range(level, min(initial, level + 6) + 1)))
+                return [SimpleNamespace(name='先约电台'), SimpleNamespace(name=str(level),x=946,y=684,width=89,height=76)]
+            task.scroll_relative, task.ocr = scroll, ocr
+            self.assertTrue(inspection_method()(task))
+            self.assertEqual(set.union(*observed), set(range(1, initial + 1)))
+            self.assertEqual(len(observed), 7)
 
     def test_invalid_history_request_rejects_before_input(self):
         for page, scroll_back in (('tasks', True), ('rewards', 'yes')):
