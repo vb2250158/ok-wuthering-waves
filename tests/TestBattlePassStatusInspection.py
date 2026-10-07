@@ -11,14 +11,14 @@ from tests.TestDailyProgressInspection import (
 )
 
 
-def inspection_method():
+def inspection_method(name='inspect_battle_pass_status'):
     path = Path(__file__).parents[1] / 'src/task/DailyTask.py'
     tree = ast.parse(path.read_text(encoding='utf-8'))
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'DailyTask')
-    method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'inspect_battle_pass_status')
+    method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == name)
     scope = {'re': re}
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(path), 'exec'), scope)
-    return scope['inspect_battle_pass_status']
+    return scope[name]
 
 
 class TestBattlePassStatusInspection(unittest.TestCase):
@@ -61,6 +61,7 @@ class TestBattlePassStatusInspection(unittest.TestCase):
             wait_ocr=lambda *args, **kwargs: opened, ocr=ocr,
             info_set=lambda *args: None,
         )
+        task.inspect_battle_pass_page = inspection_method('inspect_battle_pass_page').__get__(task)
         return task, calls
 
     def test_navigation_never_touches_claim_or_purchase_controls(self):
@@ -90,6 +91,12 @@ class TestBattlePassStatusInspection(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'inert input failure'):
             inspection_method()(task)
         self.assertEqual(calls[-1], ('up', 'alt'))
+
+    def test_unknown_named_page_rejects_before_input(self):
+        task, calls = self.harness()
+        with self.assertRaisesRegex(ValueError, 'Unknown battle pass'):
+            task.inspect_battle_pass_page('purchase')
+        self.assertEqual(calls, [])
 
 
 if __name__ == '__main__':

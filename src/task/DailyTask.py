@@ -269,13 +269,21 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         if not self.wait_ocr(0.2, 0.13, 0.32, 0.22, match=re.compile(r'\d+'),
                              settle_time=1, raise_if_not_found=False):
             return False
-        self.click_relative(0.04, 0.3, after_sleep=1)
-        tasks = self.ocr(0.02, 0.02, 0.98, 0.95, match=re.compile(r'.+'))
-        self.click_relative(0.04, 0.17, after_sleep=2)
-        rewards = self.ocr(0.02, 0.02, 0.98, 0.95, match=re.compile(r'.+'))
+        tasks = self.inspect_battle_pass_page('tasks')
+        rewards = self.inspect_battle_pass_page('rewards')
         readable = all(any('先约电台' in box.name for box in page) for page in (tasks, rewards))
         self.info_set('battle pass status', 'pages observed; no claims' if readable else 'pages unreadable')
         return readable
+
+    def inspect_battle_pass_page(self, page):
+        """Read one named page so observations retain their own input boundary."""
+        if page == 'tasks':
+            self.click_relative(0.04, 0.3, after_sleep=1)
+        elif page == 'rewards':
+            self.click_relative(0.04, 0.17, after_sleep=2)
+        else:
+            raise ValueError('Unknown battle pass inspection page')
+        return self.ocr(0.02, 0.02, 0.98, 0.95, match=re.compile(r'.+'))
 
     def inspect_daily_reward_status(self):
         """Observe already-claimed daily rewards without clicking any claim control."""
