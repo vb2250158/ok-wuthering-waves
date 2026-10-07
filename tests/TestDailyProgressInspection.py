@@ -1,5 +1,6 @@
 """Execute the official methods with inert harnesses; never initialize a game."""
 import ast
+import re
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -40,7 +41,12 @@ class DailyHarness:
 
     def open_daily(self):
         self.calls.append('inspect')
+        self._daily_points_read_valid = self.ready
         return 180, self.ready
+
+    def inspect_daily_progress(self):
+        self.open_daily()
+        return self._daily_points_read_valid
 
     def claim_daily(self):
         raise AssertionError('Inspection must not claim daily rewards')
@@ -95,7 +101,7 @@ class TestDailyProgressInspection(unittest.TestCase):
         self.assertTrue(task.run())
         self.assertEqual(task.calls, ['validate', 'base', 'main', 'inspect', 'main'])
 
-    def test_unfinished_progress_returns_false_without_claiming(self):
+    def test_unreadable_progress_returns_false_without_claiming(self):
         task = DailyHarness(False)
         self.assertFalse(task.run())
         self.assertEqual(task.calls, ['validate', 'base', 'main', 'inspect', 'main'])
@@ -118,3 +124,17 @@ class TestDailyProgressInspection(unittest.TestCase):
         task.config.pop(INSPECTION_ONLY)
         with self.assertRaisesRegex(AssertionError, 'claim daily rewards'):
             task.run()
+
+    def test_points_read_distinguishes_zero_and_unreadable_without_changing_integer_results(self):
+        path = Path(__file__).parents[1] / 'src/task/DailyTask.py'
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'DailyTask')
+        method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'get_total_daily_points')
+        scope = {'re': re, 'number_re': re.compile(r'\d+')}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(path), 'exec'), scope)
+        for text, expected, valid in [('0', 0, True), ('100', 100, True), ('101', 101, False), ('unreadable', 0, False), (None, 0, False)]:
+            with self.subTest(text=text):
+                task = SimpleNamespace(ocr=lambda *args, **kwargs: [] if text is None else [SimpleNamespace(name=text)],
+                                       info_set=lambda *args: None, _daily_points_read_valid=True)
+                self.assertEqual(scope['get_total_daily_points'](task), expected)
+                self.assertIs(task._daily_points_read_valid, valid)

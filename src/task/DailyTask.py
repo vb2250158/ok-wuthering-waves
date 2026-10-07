@@ -85,9 +85,9 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         self.ensure_main(time_out=180)
 
         if self.config.get(DAILY_PROGRESS_INSPECTION_ONLY, False):
-            _, daily_reward_ready = self.open_daily()
+            readable = self.inspect_daily_progress()
             self.ensure_main()
-            return daily_reward_ready
+            return readable
 
         additional_tasks = self.config.get(ADDITIONAL_TASKS) or []
         condition1 = AUTO_FARM_NIGHTMARE_NEST in additional_tasks
@@ -226,6 +226,11 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                           raise_if_not_found=False)
         self.ensure_main()
 
+    def inspect_daily_progress(self):
+        """Read the daily page without farming or claiming any rewards."""
+        self.open_daily()
+        return self._daily_points_read_valid
+
     def open_daily(self):
         self.log_info('open_daily')
         self.openF2Book("gray_book_quest")
@@ -243,10 +248,14 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         # 请注意：如果任务【累计消耗180点结晶波片】已完成，current 也可能为 0，因为翻页后也有可能识别不到已用体力。
 
     def get_total_daily_points(self):
+        # Inspection must distinguish a valid zero from an unreadable region;
+        # ordinary daily callers retain their original integer result.
+        self._daily_points_read_valid = False
         points_boxes = self.ocr(0.19, 0.8, 0.30, 0.93, match=number_re)
         if points_boxes:
             try:
                 points = int(re.sub(r'\D', '', points_boxes[0].name))
+                self._daily_points_read_valid = 0 <= points <= 100
             except Exception:
                 points = 0
         else:
