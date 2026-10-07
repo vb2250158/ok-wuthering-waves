@@ -8,7 +8,7 @@ import win32process
 
 from ok import Box
 from ok.task.exceptions import WaitFailedException
-from src.task.DailyTask import DailyTask, DAILY_PROGRESS_INSPECTION_ONLY, DAILY_PROGRESS_INSPECTION_ACCOUNT, DAILY_REWARD_STATUS_INSPECTION_ONLY
+from src.task.DailyTask import DailyTask, DAILY_PROGRESS_INSPECTION_ONLY, DAILY_PROGRESS_INSPECTION_ACCOUNT, DAILY_REWARD_STATUS_INSPECTION_ONLY, BATTLE_PASS_STATUS_INSPECTION_ONLY
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.BaseWWTask import LOGIN_TEXTS
@@ -102,7 +102,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self.all_accounts.clear()
 
         daily_config = self.get_task_by_class(DailyTask).config
-        inspection_only = daily_config.get(DAILY_PROGRESS_INSPECTION_ONLY, False) or daily_config.get(DAILY_REWARD_STATUS_INSPECTION_ONLY, False)
+        inspection_only = any(daily_config.get(mode, False) for mode in (
+            DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY, BATTLE_PASS_STATUS_INSPECTION_ONLY))
         inspection_account = normalize_account_name(
             self.get_task_by_class(DailyTask).config.get(DAILY_PROGRESS_INSPECTION_ACCOUNT, '')
         ) if inspection_only else ''

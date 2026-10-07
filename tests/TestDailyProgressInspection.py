@@ -9,6 +9,7 @@ import unittest
 INSPECTION_ONLY = 'Daily Progress Inspection Only'
 INSPECTION_ACCOUNT = 'Daily Progress Inspection Account'
 REWARD_STATUS_ONLY = 'Daily Reward Status Inspection Only'
+BATTLE_PASS_STATUS_ONLY = 'Battle Pass Status Inspection Only'
 
 
 def run_method(filename, classname):
@@ -24,6 +25,7 @@ def run_method(filename, classname):
              'DAILY_PROGRESS_INSPECTION_ONLY': INSPECTION_ONLY,
              'DAILY_PROGRESS_INSPECTION_ACCOUNT': INSPECTION_ACCOUNT,
              'DAILY_REWARD_STATUS_INSPECTION_ONLY': REWARD_STATUS_ONLY,
+             'BATTLE_PASS_STATUS_INSPECTION_ONLY': BATTLE_PASS_STATUS_ONLY,
              'normalize_account_name': lambda name: name.lower().replace('0', 'o').replace('.con', '.com') if name else name,
              'ADDITIONAL_TASKS': 'Additional Tasks to Run After Daily Task',
              'AUTO_FARM_NIGHTMARE_NEST': 'Auto Farm all Nightmare Nest'}

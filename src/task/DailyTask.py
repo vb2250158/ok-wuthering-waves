@@ -26,6 +26,7 @@ ADDITIONAL_TASKS = 'Additional Tasks to Run After Daily Task'
 DAILY_PROGRESS_INSPECTION_ONLY = 'Daily Progress Inspection Only'
 DAILY_PROGRESS_INSPECTION_ACCOUNT = 'Daily Progress Inspection Account'
 DAILY_REWARD_STATUS_INSPECTION_ONLY = 'Daily Reward Status Inspection Only'
+BATTLE_PASS_STATUS_INSPECTION_ONLY = 'Battle Pass Status Inspection Only'
 DAILY_REWARD_CHECK_CENTERS = (0.392, 0.525, 0.659, 0.792, 0.925)
 
 
@@ -46,11 +47,13 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             DAILY_PROGRESS_INSPECTION_ONLY: False,
             DAILY_PROGRESS_INSPECTION_ACCOUNT: '',
             DAILY_REWARD_STATUS_INSPECTION_ONLY: False,
+            BATTLE_PASS_STATUS_INSPECTION_ONLY: False,
         }
         self.config_description = {
             DAILY_PROGRESS_INSPECTION_ONLY: 'Only inspect daily progress; do not farm or claim rewards.',
             DAILY_PROGRESS_INSPECTION_ACCOUNT: 'Optional saved-login account for inspection only; empty inspects all accounts.',
             DAILY_REWARD_STATUS_INSPECTION_ONLY: 'Only inspect whether all five daily rewards are already claimed; never claim rewards.',
+            BATTLE_PASS_STATUS_INSPECTION_ONLY: 'Only observe battle pass task and reward pages; never claim or purchase rewards.',
             'Which Tacet Suppression to Farm': 'The Tacet Suppression number in the F2 list.',
             'Which Forgery Challenge to Farm': 'The Forgery Challenge number in the F2 list.',
             'Material Selection': 'Resonator EXP / Weapon EXP / Shell Credit',
@@ -88,7 +91,9 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         self.description = "Login, claim monthly card, farm echo, and claim daily reward"
 
     def run(self):
-        if self.config.get(DAILY_PROGRESS_INSPECTION_ONLY, False) and self.config.get(DAILY_REWARD_STATUS_INSPECTION_ONLY, False):
+        if sum(bool(self.config.get(mode, False)) for mode in (
+                DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY,
+                BATTLE_PASS_STATUS_INSPECTION_ONLY)) > 1:
             raise ValueError('Choose one daily inspection mode at a time')
         self.validate_additional_tasks()
 
@@ -105,6 +110,11 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             claimed = self.inspect_daily_reward_status()
             self.ensure_main()
             return claimed
+
+        if self.config.get(BATTLE_PASS_STATUS_INSPECTION_ONLY, False):
+            readable = self.inspect_battle_pass_status()
+            self.ensure_main()
+            return readable
 
         additional_tasks = self.config.get(ADDITIONAL_TASKS) or []
         condition1 = AUTO_FARM_NIGHTMARE_NEST in additional_tasks
@@ -247,6 +257,25 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         """Read the daily page without farming or claiming any rewards."""
         self.open_daily()
         return self._daily_points_read_valid
+
+    def inspect_battle_pass_status(self):
+        """Observe both pages without claiming; True means readable, not claimed."""
+        self.send_key_down('alt')
+        try:
+            self.sleep(0.05)
+            self.click_relative(0.86, 0.05)
+        finally:
+            self.send_key_up('alt')
+        if not self.wait_ocr(0.2, 0.13, 0.32, 0.22, match=re.compile(r'\d+'),
+                             settle_time=1, raise_if_not_found=False):
+            return False
+        self.click_relative(0.04, 0.3, after_sleep=1)
+        tasks = self.ocr(0.02, 0.02, 0.98, 0.95, match=re.compile(r'.+'))
+        self.click_relative(0.04, 0.17, after_sleep=2)
+        rewards = self.ocr(0.02, 0.02, 0.98, 0.95, match=re.compile(r'.+'))
+        readable = all(any('先约电台' in box.name for box in page) for page in (tasks, rewards))
+        self.info_set('battle pass status', 'pages observed; no claims' if readable else 'pages unreadable')
+        return readable
 
     def inspect_daily_reward_status(self):
         """Observe already-claimed daily rewards without clicking any claim control."""
