@@ -8,7 +8,7 @@ import win32process
 
 from ok import Box
 from ok.task.exceptions import WaitFailedException
-from src.task.DailyTask import DailyTask
+from src.task.DailyTask import DailyTask, DAILY_PROGRESS_INSPECTION_ONLY
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.BaseWWTask import LOGIN_TEXTS
@@ -101,11 +101,18 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self.done_set.clear()
         self.all_accounts.clear()
 
-        self.run_task_by_class(DailyTask)
-        self.ensure_main(time_out=100)
-        self._switch_to_login()
-        detected = self._detect_current_account_from_login()
-        self._mark_done(detected)
+        inspection_only = self.get_task_by_class(DailyTask).config.get(DAILY_PROGRESS_INSPECTION_ONLY, False)
+        if inspection_only:
+            # Select the saved account through the existing login flow before
+            # the first inspection, just as for subsequent account runs.
+            self.ensure_main(time_out=100)
+            self._switch_to_login()
+        else:
+            self.run_task_by_class(DailyTask)
+            self.ensure_main(time_out=100)
+            self._switch_to_login()
+            detected = self._detect_current_account_from_login()
+            self._mark_done(detected)
 
         self.info_set('Completed', self.done_set)
 

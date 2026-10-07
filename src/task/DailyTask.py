@@ -20,6 +20,7 @@ AUTO_FARM_NIGHTMARE_NEST = 'Auto Farm all Nightmare Nest'
 MERGE_ECHO_IF_DISCARDED_OVER_1000 = 'Merge Echo If discarded > 1000'
 TELEPORT_AND_FARM_4C_ECHO = 'Teleport and Farm 4C Echo'
 ADDITIONAL_TASKS = 'Additional Tasks to Run After Daily Task'
+DAILY_PROGRESS_INSPECTION_ONLY = 'Daily Progress Inspection Only'
 
 
 class DailyTask(WWOneTimeTask, BaseCombatTask):
@@ -36,8 +37,10 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             'Material Selection': 'Shell Credit',
             'Farm Nightmare Nest for Daily Echo': True,
             ADDITIONAL_TASKS: [CHECK_WEEKLY_GARDEN],
+            DAILY_PROGRESS_INSPECTION_ONLY: False,
         }
         self.config_description = {
+            DAILY_PROGRESS_INSPECTION_ONLY: 'Only inspect daily progress; do not farm or claim rewards.',
             'Which Tacet Suppression to Farm': 'The Tacet Suppression number in the F2 list.',
             'Which Forgery Challenge to Farm': 'The Forgery Challenge number in the F2 list.',
             'Material Selection': 'Resonator EXP / Weapon EXP / Shell Credit',
@@ -80,6 +83,11 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         WWOneTimeTask.run(self)
         self.logged_in = False
         self.ensure_main(time_out=180)
+
+        if self.config.get(DAILY_PROGRESS_INSPECTION_ONLY, False):
+            _, daily_reward_ready = self.open_daily()
+            self.ensure_main()
+            return daily_reward_ready
 
         additional_tasks = self.config.get(ADDITIONAL_TASKS) or []
         condition1 = AUTO_FARM_NIGHTMARE_NEST in additional_tasks
