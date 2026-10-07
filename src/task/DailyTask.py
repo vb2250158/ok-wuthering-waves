@@ -273,6 +273,7 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         rewards = self.inspect_battle_pass_page('rewards')
         readable = (any('电台任务' in box.name for box in tasks)
                     and any('先约电台' in box.name for box in rewards))
+        earlier = rewards
         if readable:
             # The reward tab starts at the current level. Observe earlier free
             # levels too; the external verifier must establish complete coverage.
@@ -282,6 +283,10 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                 if not any('先约电台' in box.name for box in earlier):
                     readable = False
                     break
+        # Page titles alone cannot prove that the navigation exposed history.
+        # Require the earliest free level after the bounded sweep; the external
+        # verifier still checks every unlocked level and all claimed markers.
+        readable = readable and self.battle_pass_first_visible_free_level(earlier) == 1
         self.info_set('battle pass status', 'pages observed; no claims' if readable else 'pages unreadable')
         return readable
 
@@ -295,12 +300,28 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             if scroll_back:
                 # Horizontal navigation inside the free reward grid; no claim
                 # or premium purchase control is touched.
-                self.swipe_relative(0.28, 0.45, 0.63, 0.45, duration=0.6, settle_time=1)
+                self.scroll_relative(0.5, 0.45, 4)
+                self.sleep(1)
             else:
                 self.click_relative(0.04, 0.17, after_sleep=2)
         else:
             raise ValueError('Unknown battle pass inspection page')
         return self.ocr(0.02, 0.02, 0.98, 0.95, match=re.compile(r'.+'))
+
+    def battle_pass_first_visible_free_level(self, boxes):
+        levels = []
+        for box in boxes:
+            if not re.fullmatch(r'\d{1,2}', box.name.strip()):
+                continue
+            if not all(hasattr(box, field) for field in ('x', 'y', 'width', 'height')):
+                continue
+            center_x = (box.x + box.width / 2) / self.width
+            center_y = (box.y + box.height / 2) / self.height
+            if .23 <= center_x <= .70 and .30 <= center_y <= .37:
+                level = int(box.name.strip())
+                if 1 <= level <= 70:
+                    levels.append(level)
+        return min(levels) if levels else None
 
     def inspect_daily_reward_status(self):
         """Observe already-claimed daily rewards without clicking any claim control."""

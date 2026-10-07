@@ -47,7 +47,7 @@ class TestBattlePassStatusInspection(unittest.TestCase):
     def harness(self, *, opened=True, pages=None, click_error=False):
         calls = []
         pages = iter(pages if pages is not None else [
-            [SimpleNamespace(name='电台任务')], *[[SimpleNamespace(name='先约电台')]] * 7,
+            [SimpleNamespace(name='电台任务')], *[[SimpleNamespace(name='先约电台'), SimpleNamespace(name='1',x=946,y=684,width=89,height=76)]] * 7,
         ])
         def click(x, y, **kw):
             calls.append(('click', x, y))
@@ -61,10 +61,13 @@ class TestBattlePassStatusInspection(unittest.TestCase):
             send_key_up=lambda key: calls.append(('up', key)),
             sleep=lambda _seconds: None, click_relative=click,
             swipe_relative=lambda *args, **kwargs: calls.append(('swipe', args, kwargs)),
+            scroll_relative=lambda *args: calls.append(('scroll', args)),
+            width=3840, height=2160,
             wait_ocr=lambda *args, **kwargs: opened, ocr=ocr,
             info_set=lambda *args: None,
         )
         task.inspect_battle_pass_page = inspection_method('inspect_battle_pass_page').__get__(task)
+        task.battle_pass_first_visible_free_level = inspection_method('battle_pass_first_visible_free_level').__get__(task)
         return task, calls
 
     def test_navigation_never_touches_claim_or_purchase_controls(self):
@@ -76,16 +79,17 @@ class TestBattlePassStatusInspection(unittest.TestCase):
         self.assertEqual([c for c in calls if c[0] == 'ocr'], [
             ('ocr', 0.02, 0.02, 0.98, 0.95),
         ] * 8)
-        self.assertEqual([c for c in calls if c[0] == 'swipe'], [
-            ('swipe', (0.28, 0.45, 0.63, 0.45), {'duration': 0.6, 'settle_time': 1}),
+        self.assertEqual([c for c in calls if c[0] == 'scroll'], [
+            ('scroll', (0.5, 0.45, 4)),
         ] * 6)
+        self.assertFalse(any(c[0]=='swipe' for c in calls))
 
     def test_unreadable_reward_history_stops_the_bounded_sweep(self):
         task, calls = self.harness(pages=[
             [SimpleNamespace(name='电台任务')], [SimpleNamespace(name='先约电台')], [],
         ])
         self.assertFalse(inspection_method()(task))
-        self.assertEqual(len([c for c in calls if c[0] == 'swipe']), 1)
+        self.assertEqual(len([c for c in calls if c[0] == 'scroll']), 1)
 
     def test_invalid_history_request_rejects_before_input(self):
         for page, scroll_back in (('tasks', True), ('rewards', 'yes')):
@@ -93,6 +97,23 @@ class TestBattlePassStatusInspection(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Only reward history'):
                 task.inspect_battle_pass_page(page, scroll_back=scroll_back)
             self.assertEqual(calls, [])
+
+    def test_history_that_stays_at_current_level_is_not_readable_history(self):
+        task, _calls = self.harness(pages=[
+            [SimpleNamespace(name='电台任务')],
+            *[[SimpleNamespace(name='先约电台'), SimpleNamespace(name='13', x=946, y=684, width=89, height=76)]]*7,
+        ])
+        task.width, task.height = 3840, 2160
+        self.assertFalse(inspection_method()(task))
+
+    def test_level_anchor_excludes_current_level_fixed_tile_and_wrong_text(self):
+        task, _calls = self.harness()
+        valid=SimpleNamespace(name='1',x=946,y=684,width=89,height=76)
+        for invalid in (SimpleNamespace(name='1',x=517,y=378,width=187,height=163),
+                        SimpleNamespace(name='1',x=2874,y=684,width=89,height=76),
+                        SimpleNamespace(name='1'), SimpleNamespace(name='1/1',x=946,y=684,width=89,height=76)):
+            self.assertIsNone(task.battle_pass_first_visible_free_level([invalid]))
+        self.assertEqual(task.battle_pass_first_visible_free_level([valid]),1)
 
     def test_unopened_page_stops_before_tasks_and_rewards(self):
         task, calls = self.harness(opened=False)
