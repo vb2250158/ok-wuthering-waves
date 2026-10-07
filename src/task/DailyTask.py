@@ -21,6 +21,7 @@ MERGE_ECHO_IF_DISCARDED_OVER_1000 = 'Merge Echo If discarded > 1000'
 TELEPORT_AND_FARM_4C_ECHO = 'Teleport and Farm 4C Echo'
 ADDITIONAL_TASKS = 'Additional Tasks to Run After Daily Task'
 DAILY_PROGRESS_INSPECTION_ONLY = 'Daily Progress Inspection Only'
+DAILY_PROGRESS_INSPECTION_ACCOUNT = 'Daily Progress Inspection Account'
 
 
 class DailyTask(WWOneTimeTask, BaseCombatTask):
@@ -38,9 +39,11 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             'Farm Nightmare Nest for Daily Echo': True,
             ADDITIONAL_TASKS: [CHECK_WEEKLY_GARDEN],
             DAILY_PROGRESS_INSPECTION_ONLY: False,
+            DAILY_PROGRESS_INSPECTION_ACCOUNT: '',
         }
         self.config_description = {
             DAILY_PROGRESS_INSPECTION_ONLY: 'Only inspect daily progress; do not farm or claim rewards.',
+            DAILY_PROGRESS_INSPECTION_ACCOUNT: 'Optional saved-login account for inspection only; empty inspects all accounts.',
             'Which Tacet Suppression to Farm': 'The Tacet Suppression number in the F2 list.',
             'Which Forgery Challenge to Farm': 'The Forgery Challenge number in the F2 list.',
             'Material Selection': 'Resonator EXP / Weapon EXP / Shell Credit',

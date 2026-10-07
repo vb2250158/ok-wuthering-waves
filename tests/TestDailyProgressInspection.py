@@ -7,6 +7,7 @@ import unittest
 
 
 INSPECTION_ONLY = 'Daily Progress Inspection Only'
+INSPECTION_ACCOUNT = 'Daily Progress Inspection Account'
 
 
 def run_method(filename, classname):
@@ -20,6 +21,8 @@ def run_method(filename, classname):
             task.calls.append('base')
     scope = {'WWOneTimeTask': Base, 'DailyTask': object(),
              'DAILY_PROGRESS_INSPECTION_ONLY': INSPECTION_ONLY,
+             'DAILY_PROGRESS_INSPECTION_ACCOUNT': INSPECTION_ACCOUNT,
+             'normalize_account_name': lambda name: name.lower().replace('0', 'o').replace('.con', '.com') if name else name,
              'ADDITIONAL_TASKS': 'Additional Tasks to Run After Daily Task',
              'AUTO_FARM_NIGHTMARE_NEST': 'Auto Farm all Nightmare Nest'}
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(path), 'exec'), scope)
@@ -96,6 +99,23 @@ class MultiAccountHarness:
 
 
 class TestDailyProgressInspection(unittest.TestCase):
+    def test_requested_account_is_inspected_once_without_foreign_business(self):
+        task = MultiAccountHarness()
+        task.config[INSPECTION_ACCOUNT] = 'target-fixture'
+        accounts = iter(['foreign-fixture', 'target-fixture', None])
+        task._select_and_login_account = lambda: next(accounts)
+        task.identity_selected = True
+        task.run()
+        self.assertEqual(task.calls.count('inspect'), 1)
+        self.assertEqual(task.done_set, {'foreign-fixture', 'target-fixture'})
+
+    def test_missing_requested_account_fails_without_inspection(self):
+        task = MultiAccountHarness()
+        task.config[INSPECTION_ACCOUNT] = 'missing-fixture'
+        with self.assertRaisesRegex(Exception, 'not found'):
+            task.run()
+        self.assertEqual(task.calls.count('inspect'), 0)
+
     def test_inspection_does_not_claim_or_farm(self):
         task = DailyHarness(True)
         self.assertTrue(task.run())

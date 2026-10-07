@@ -8,7 +8,7 @@ import win32process
 
 from ok import Box
 from ok.task.exceptions import WaitFailedException
-from src.task.DailyTask import DailyTask, DAILY_PROGRESS_INSPECTION_ONLY
+from src.task.DailyTask import DailyTask, DAILY_PROGRESS_INSPECTION_ONLY, DAILY_PROGRESS_INSPECTION_ACCOUNT
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.BaseWWTask import LOGIN_TEXTS
@@ -102,6 +102,9 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self.all_accounts.clear()
 
         inspection_only = self.get_task_by_class(DailyTask).config.get(DAILY_PROGRESS_INSPECTION_ONLY, False)
+        inspection_account = normalize_account_name(
+            self.get_task_by_class(DailyTask).config.get(DAILY_PROGRESS_INSPECTION_ACCOUNT, '')
+        ) if inspection_only else ''
         if inspection_only:
             # Select the saved account through the existing login flow before
             # the first inspection, just as for subsequent account runs.
@@ -118,10 +121,20 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
         while next_account := self._select_and_login_account():
             self.info_set('Completed', self.done_set)
+            if inspection_account and normalize_account_name(next_account) != inspection_account:
+                self._mark_done(next_account)
+                self.ensure_main(time_out=100)
+                self._switch_to_login()
+                continue
             self.run_task_by_class(DailyTask)
             self._mark_done(next_account)
+            if inspection_account:
+                return
             self.ensure_main(time_out=100)
             self._switch_to_login()
+
+        if inspection_account:
+            raise Exception('Requested saved account was not found for daily progress inspection')
 
     def _click_center_offset(self, offset_x, offset_y, after_sleep=0.5):
         h, w = self.frame.shape[:2]
