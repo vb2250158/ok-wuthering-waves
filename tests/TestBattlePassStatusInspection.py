@@ -46,7 +46,9 @@ class TestBattlePassStatusInspection(unittest.TestCase):
 
     def harness(self, *, opened=True, pages=None, click_error=False):
         calls = []
-        pages = iter(pages or [[SimpleNamespace(name='先约电台')]] * 2)
+        pages = iter(pages if pages is not None else [
+            [SimpleNamespace(name='电台任务')], *[[SimpleNamespace(name='先约电台')]] * 7,
+        ])
         def click(x, y, **kw):
             calls.append(('click', x, y))
             if click_error:
@@ -58,6 +60,7 @@ class TestBattlePassStatusInspection(unittest.TestCase):
             send_key_down=lambda key: calls.append(('down', key)),
             send_key_up=lambda key: calls.append(('up', key)),
             sleep=lambda _seconds: None, click_relative=click,
+            swipe_relative=lambda *args, **kwargs: calls.append(('swipe', args, kwargs)),
             wait_ocr=lambda *args, **kwargs: opened, ocr=ocr,
             info_set=lambda *args: None,
         )
@@ -71,8 +74,25 @@ class TestBattlePassStatusInspection(unittest.TestCase):
             ('click', 0.86, 0.05), ('click', 0.04, 0.3), ('click', 0.04, 0.17),
         ])
         self.assertEqual([c for c in calls if c[0] == 'ocr'], [
-            ('ocr', 0.02, 0.02, 0.98, 0.95), ('ocr', 0.02, 0.02, 0.98, 0.95),
+            ('ocr', 0.02, 0.02, 0.98, 0.95),
+        ] * 8)
+        self.assertEqual([c for c in calls if c[0] == 'swipe'], [
+            ('swipe', (0.28, 0.45, 0.63, 0.45), {'duration': 0.6, 'settle_time': 1}),
+        ] * 6)
+
+    def test_unreadable_reward_history_stops_the_bounded_sweep(self):
+        task, calls = self.harness(pages=[
+            [SimpleNamespace(name='电台任务')], [SimpleNamespace(name='先约电台')], [],
         ])
+        self.assertFalse(inspection_method()(task))
+        self.assertEqual(len([c for c in calls if c[0] == 'swipe']), 1)
+
+    def test_invalid_history_request_rejects_before_input(self):
+        for page, scroll_back in (('tasks', True), ('rewards', 'yes')):
+            task, calls = self.harness()
+            with self.assertRaisesRegex(ValueError, 'Only reward history'):
+                task.inspect_battle_pass_page(page, scroll_back=scroll_back)
+            self.assertEqual(calls, [])
 
     def test_unopened_page_stops_before_tasks_and_rewards(self):
         task, calls = self.harness(opened=False)
@@ -82,7 +102,9 @@ class TestBattlePassStatusInspection(unittest.TestCase):
 
     def test_both_observed_pages_must_contain_the_page_anchor(self):
         for pages in ([[], [SimpleNamespace(name='先约电台')]],
-                      [[SimpleNamespace(name='先约电台')], [SimpleNamespace(name='other page')]]):
+                      [[SimpleNamespace(name='电台任务')], [SimpleNamespace(name='other page')]],
+                      [[SimpleNamespace(name='先约电台')], [SimpleNamespace(name='先约电台')]],
+                      [[SimpleNamespace(name='电台任务')], [SimpleNamespace(name='电台任务')]]):
             task, _calls = self.harness(pages=pages)
             self.assertFalse(inspection_method()(task))
 

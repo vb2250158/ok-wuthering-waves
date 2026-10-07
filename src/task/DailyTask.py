@@ -271,16 +271,33 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             return False
         tasks = self.inspect_battle_pass_page('tasks')
         rewards = self.inspect_battle_pass_page('rewards')
-        readable = all(any('先约电台' in box.name for box in page) for page in (tasks, rewards))
+        readable = (any('电台任务' in box.name for box in tasks)
+                    and any('先约电台' in box.name for box in rewards))
+        if readable:
+            # The reward tab starts at the current level. Observe earlier free
+            # levels too; the external verifier must establish complete coverage.
+            # Bound the sweep so input observations fit the artifact contract.
+            for _ in range(6):
+                earlier = self.inspect_battle_pass_page('rewards', scroll_back=True)
+                if not any('先约电台' in box.name for box in earlier):
+                    readable = False
+                    break
         self.info_set('battle pass status', 'pages observed; no claims' if readable else 'pages unreadable')
         return readable
 
-    def inspect_battle_pass_page(self, page):
+    def inspect_battle_pass_page(self, page, *, scroll_back=False):
         """Read one named page so observations retain their own input boundary."""
+        if type(scroll_back) is not bool or (scroll_back and page != 'rewards'):
+            raise ValueError('Only reward history may be scrolled')
         if page == 'tasks':
             self.click_relative(0.04, 0.3, after_sleep=1)
         elif page == 'rewards':
-            self.click_relative(0.04, 0.17, after_sleep=2)
+            if scroll_back:
+                # Horizontal navigation inside the free reward grid; no claim
+                # or premium purchase control is touched.
+                self.swipe_relative(0.28, 0.45, 0.63, 0.45, duration=0.6, settle_time=1)
+            else:
+                self.click_relative(0.04, 0.17, after_sleep=2)
         else:
             raise ValueError('Unknown battle pass inspection page')
         return self.ocr(0.02, 0.02, 0.98, 0.95, match=re.compile(r'.+'))
