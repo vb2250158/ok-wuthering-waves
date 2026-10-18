@@ -230,21 +230,25 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             current = int(progress[0].name.split('/')[0])
         else:
             current = 0
-        self.info_set('current daily progress', current)
+        self.info_set('current daily stamina progress', current if progress else 'unreadable')
         return current, self.get_total_daily_points() >= 100
         # 请注意：如果任务【累计消耗180点结晶波片】已完成，current 也可能为 0，因为翻页后也有可能识别不到已用体力。
 
     def get_total_daily_points(self):
-        points_boxes = self.ocr(0.19, 0.8, 0.30, 0.93, match=number_re)
-        if points_boxes:
-            try:
-                points = int(re.sub(r'\D', '', points_boxes[0].name))
-            except Exception:
-                points = 0
-        else:
-            points = 0
-        self.info_set('total daily points', points)
-        return points
+        self._daily_points_read_valid = False
+        for attempt in range(3):
+            points_boxes = self.ocr(0.19, 0.83, 0.26, 0.89, match=re.compile(r'^\d+$'))
+            values = {int(box.name.strip()) for box in points_boxes
+                      if re.fullmatch(r'\d+', box.name.strip())}
+            if len(values) == 1:
+                points = values.pop()
+                self._daily_points_read_valid = True
+                self.info_set('total daily points', points)
+                return points
+            if attempt < 2:
+                self.sleep(0.3)
+        self.info_set('total daily points', 'unreadable')
+        raise ValueError('Daily activity OCR unreadable; refusing to treat it as zero')
 
     def claim_daily(self):
         self.info_set('current task', 'claim daily')
