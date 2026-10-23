@@ -810,6 +810,10 @@ class BaseWWTask(BaseTask):
                     self.click(start)
                     self.log_info(f'点击开始游戏! {start}')
                     return False
+            # Inspection may use recognized login/navigation controls, never
+            # the legacy unclassified coordinate fallback at the bottom of a page.
+            if getattr(self, 'readonly_inspection', False):
+                return False
             if switch_login := self.find_one(Labels.switch_account, vertical_variance=0.1, threshold=0.7):
                 if boxes := self.find_boxes(texts, boundary=self.box_of_screen(0.37, 0.63, 0.63, 0.99, hcenter=True,
                                                                                vcenter=True)):
@@ -983,6 +987,8 @@ class BaseWWTask(BaseTask):
         monthly_card = self.find_monthly_card()
         # self.screenshot('monthly_card1')
         if monthly_card is not None:
+            if getattr(self, 'readonly_inspection', False):
+                raise RuntimeError('readonly_inspection_reward_page_blocked: monthly card requires a reward action')
             # self.screenshot('monthly_card1')
             self.log_info('monthly_card found click')
             self.click_relative(0.50, 0.89)

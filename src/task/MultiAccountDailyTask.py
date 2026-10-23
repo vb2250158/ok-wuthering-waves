@@ -26,9 +26,14 @@ _SendMessageW.restype = ctypes.c_ssize_t
 
 
 def normalize_account_name(account):
-    if not account:
-        return account
-    return account.lower().replace('0', 'o').replace('.con', '.com')
+    # The selected native/OCR label is identity evidence, not an OCR suggestion.
+    # Preserve it byte-for-byte; no case, digit or domain-spelling aliases.
+    return account if isinstance(account, str) else None
+
+
+def ambiguous_account_key(account):
+    # Conservative rejection only. Never use this key to select or confirm identity.
+    return account.lower().replace('0', 'o').replace('.con', '.com').casefold()
 
 
 def configured_accounts(config):
@@ -41,7 +46,7 @@ def configured_accounts(config):
         if (not isinstance(account, str) or not account.strip() or account != account.strip()
                 or any(ord(char) < 32 for char in account)):
             raise ValueError('account_selection_invalid: saved account labels must be nonempty strings')
-        key = normalize_account_name(account).casefold()
+        key = ambiguous_account_key(account)
         if key in seen:
             raise ValueError('account_selection_ambiguous: saved account labels collide')
         seen.add(key)
@@ -122,7 +127,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         return normalize_account_name(account) in self.done_set
 
     def _same_account(self, left, right):
-        return normalize_account_name(left) == normalize_account_name(right)
+        return isinstance(left, str) and bool(left) and isinstance(right, str) and left == right
 
     def run(self):
         self.done_set.clear()
@@ -135,6 +140,9 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         if any(type(mode) is not bool for mode in modes) or sum(modes) > 1:
             raise ValueError('inspection_mode_invalid: choose exactly one boolean inspection mode')
         inspection_only = any(modes)
+        # Login/entry occurs on this task before DailyTask runs. Carry the same
+        # no-reward policy across that boundary; never claim to reach inspection.
+        self.readonly_inspection = inspection_only
         inspection_account = daily_config.get(DAILY_PROGRESS_INSPECTION_ACCOUNT, '') if inspection_only else ''
         self._requested_accounts = configured_accounts(
             {SAVED_ACCOUNTS: [inspection_account]} if inspection_only else self.config)
@@ -208,7 +216,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         target = next_requested_account(self) if requested is not None else None
         if requested is not None and target is None:
             return None
-        if target is not None and sum(self._same_account(name, target) for name in accounts) > 1:
+        if target is not None and sum(ambiguous_account_key(name) == ambiguous_account_key(target) for name in accounts) > 1:
             raise WaitFailedException('account_selection_ambiguous: multiple saved entries match the requested account')
         for index, name in enumerate(accounts):
             if self._is_done(name):
@@ -243,7 +251,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             return None
         # Identical masked text at different rows can still mean different
         # accounts. Without physical-row proof, do not deduplicate OCR boxes.
-        if target is not None and sum(self._same_account(box.name, target) for box in accounts) > 1:
+        if target is not None and sum(ambiguous_account_key(box.name) == ambiguous_account_key(target) for box in accounts) > 1:
             raise WaitFailedException('account_selection_ambiguous: multiple OCR labels match the requested account')
         # self.screenshot('_click_account_in_list')
         for account in accounts:

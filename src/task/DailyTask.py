@@ -101,6 +101,11 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                 DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY,
                 BATTLE_PASS_STATUS_INSPECTION_ONLY, CURRENT_STATE_INSPECTION)) > 1:
             raise ValueError('Choose one daily inspection mode at a time')
+        # This policy covers entry, every inspection helper and return to world.
+        # It is reset on each run, including a later ordinary daily execution.
+        self.readonly_inspection = any(self.config.get(mode, False) for mode in (
+            DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY,
+            BATTLE_PASS_STATUS_INSPECTION_ONLY, CURRENT_STATE_INSPECTION))
         self.validate_additional_tasks()
 
         WWOneTimeTask.run(self)

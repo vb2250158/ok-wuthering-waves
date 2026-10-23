@@ -33,7 +33,7 @@ def load_methods(source):
                      DAILY_PROGRESS_INSPECTION_ACCOUNT='Daily Progress Inspection Account')
     nodes = []
     for node in ast.parse(source.read_text(encoding='utf-8-sig')).body:
-        if isinstance(node, ast.FunctionDef) and node.name in {'normalize_account_name', 'configured_accounts', 'next_requested_account'}:
+        if isinstance(node, ast.FunctionDef) and node.name in {'normalize_account_name', 'ambiguous_account_key', 'configured_accounts', 'next_requested_account'}:
             nodes.append(node)
         elif isinstance(node, ast.ClassDef) and node.name == 'MultiAccountDailyTask': nodes.append(node)
         elif isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in {'account_pattern', 'SAVED_ACCOUNTS'} for t in node.targets):
@@ -128,7 +128,7 @@ def make_task(*, selected=(A, B), visible=(B, OTHER, A), current=B, mode='combo'
     namespace['select_combo_item']=select_combo
     # Match the installed observer contract: only actual method return values
     # become observed identity, never the requested config value.
-    for name in ['_detect_current_account_from_login','_select_and_login_account']:
+    for name in ['_select_and_login_account']:
         original=getattr(task,name)
         def observe(*args,_original=original,**kwargs):
             result=_original(*args,**kwargs)
@@ -267,15 +267,15 @@ class TestFirstAccountConfirmation(unittest.TestCase):
         self.assertEqual(task.done_set,set())
         self.assertNotIn(('select',B),task.trace)
 
-    def test_observed_identity_is_actual_returned_label_not_config_target(self):
+    def test_lookalike_saved_label_cannot_supply_exact_identity(self):
         wanted='ab0****@example.test'
         actual='abo****@example.test'
         task,ns=make_task(selected=(wanted,),visible=(actual,OTHER))
-        task.run()
-        identities=[x[1] for x in task.trace if x[0]=='identity' and x[1]]
-        self.assertTrue(identities)
-        self.assertTrue(all(value==actual for value in identities))
-        self.assertNotEqual(actual,wanted)
+        with self.assertRaisesRegex(WaitFailedException, 'account_not_available'):
+            task.run()
+        self.assertEqual(task.daily_calls, [])
+        self.assertFalse(any(x[0] == 'identity' and x[1] for x in task.trace))
+        self.assertNotIn(('click', 'login'), task.trace)
 
     def test_forged_selection_return_is_rejected_by_run_scope(self):
         task,ns=make_task()
