@@ -209,6 +209,21 @@ class TestFirstAccountConfirmation(unittest.TestCase):
             with self.assertRaisesRegex(WaitFailedException,'account_selection_ambiguous'):task.run()
             self.assertEqual(task.daily_calls,[])
 
+    def test_identical_masked_ocr_rows_at_different_positions_are_ambiguous(self):
+        task,ns=make_task(mode='ocr',visible=(A,A,B))
+        original_ocr=task.ocr
+        def spatial_ocr(*args,**kwargs):
+            boxes=original_ocr(*args,**kwargs)
+            for index,box in enumerate(boxes):
+                box.x,box.y,box.width,box.height=200,100+80*index,220,24
+            return boxes
+        task.ocr=spatial_ocr
+        with self.assertRaisesRegex(WaitFailedException,'account_selection_ambiguous'):task.run()
+        self.assertEqual(task.daily_calls,[])
+        self.assertFalse(any(item[0]=='click' and item[1] in {A,'login'} for item in task.trace))
+        self.assertEqual(task.done_set,set())
+        self.assertTrue(task.mouse.enabled)
+
     def test_exhausted_ocr_selection_never_attempts_login(self):
         for failure in ['dropdown_stuck','ocr_mismatch']:
             task,ns=make_task(mode='ocr',failure=failure)

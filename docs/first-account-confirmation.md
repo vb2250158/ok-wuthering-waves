@@ -37,7 +37,10 @@ inspection behavior. They are not a way to execute normal daily farming. This
 change does not alter DailyTask, its farming/reward decisions, or user task options.
 
 For an external orchestrator, project the authorized frozen account list into this
-official config in the original order and restore its original bytes afterward.
+official config in the original order. Preserve the original bytes and file/field
+existence for recovery, then restore only the projected fields after confirmed
+process exit, retaining other legitimate upstream writes. If the file originally
+did not exist but upstream added other fields, do not delete those fields.
 Do not substitute a target label for the observed identity, auto-populate the list
 from every saved login, or clear failure results. An orchestrator which does not
 yet project this field must keep the candidate disabled; missing scope fails closed.

@@ -246,7 +246,9 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         target = next_requested_account(self) if requested is not None else None
         if requested is not None and target is None:
             return None
-        if target is not None and len({box.name for box in accounts if self._same_account(box.name, target)}) > 1:
+        # Identical masked text at different rows can still mean different
+        # accounts. Without physical-row proof, do not deduplicate OCR boxes.
+        if target is not None and sum(self._same_account(box.name, target) for box in accounts) > 1:
             raise WaitFailedException('account_selection_ambiguous: multiple OCR labels match the requested account')
         # self.screenshot('_click_account_in_list')
         for account in accounts:
