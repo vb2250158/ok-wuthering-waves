@@ -13,6 +13,7 @@ from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
 from src.task.BaseWWTask import LOGIN_TEXTS
 from src.task.MouseResetTask import MouseResetTask
+from src.task.StaminaBudget import CURRENT_STATE_INSPECTION
 
 account_pattern = re.compile(r'\*\*\*\*')
 SAVED_ACCOUNTS = 'Saved Accounts'
@@ -129,7 +130,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
         daily_config = self.get_task_by_class(DailyTask).config
         modes = [daily_config.get(mode, False) for mode in (
-            DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY, BATTLE_PASS_STATUS_INSPECTION_ONLY)]
+            DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY, BATTLE_PASS_STATUS_INSPECTION_ONLY,
+            CURRENT_STATE_INSPECTION)]
         if any(type(mode) is not bool for mode in modes) or sum(modes) > 1:
             raise ValueError('inspection_mode_invalid: choose exactly one boolean inspection mode')
         inspection_only = any(modes)

@@ -6,6 +6,7 @@ import cv2
 
 from ok import Logger, TaskDisabledException
 from src.task.BaseWWTask import number_re
+from src.task.StaminaBudget import SPEND_LIMIT, CURRENT_STATE_INSPECTION, configured_budget, read_daily_consumption
 from src.task.FarmEchoTask import FarmEchoTask
 from src.task.ForgeryTask import ForgeryTask
 from src.task.GardenTask import GardenTask
@@ -48,10 +49,14 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             DAILY_PROGRESS_INSPECTION_ACCOUNT: '',
             DAILY_REWARD_STATUS_INSPECTION_ONLY: False,
             BATTLE_PASS_STATUS_INSPECTION_ONLY: False,
+            SPEND_LIMIT: None,
+            CURRENT_STATE_INSPECTION: False,
         }
         self.config_description = {
+            SPEND_LIMIT: 'Optional maximum natural waveplates for this invocation. No reserve or recharge. Null keeps the original daily policy.',
             DAILY_PROGRESS_INSPECTION_ONLY: 'Only inspect daily progress; do not farm or claim rewards.',
-            DAILY_PROGRESS_INSPECTION_ACCOUNT: 'Optional saved-login account for inspection only; empty inspects all accounts.',
+            DAILY_PROGRESS_INSPECTION_ACCOUNT: 'Exact saved-login account for inspection. Missing or ambiguous targets stop.',
+            CURRENT_STATE_INSPECTION: 'Only read current natural waveplates, daily consumed waveplates, and activity. No farming, claims or recharge.',
             DAILY_REWARD_STATUS_INSPECTION_ONLY: 'Only inspect whether all five daily rewards are already claimed; never claim rewards.',
             BATTLE_PASS_STATUS_INSPECTION_ONLY: 'Only observe battle pass task and reward pages; never claim or purchase rewards.',
             'Which Tacet Suppression to Farm': 'The Tacet Suppression number in the F2 list.',
@@ -91,15 +96,21 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         self.description = "Login, claim monthly card, farm echo, and claim daily reward"
 
     def run(self):
+        budget = configured_budget(self.config)
         if sum(bool(self.config.get(mode, False)) for mode in (
                 DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY,
-                BATTLE_PASS_STATUS_INSPECTION_ONLY)) > 1:
+                BATTLE_PASS_STATUS_INSPECTION_ONLY, CURRENT_STATE_INSPECTION)) > 1:
             raise ValueError('Choose one daily inspection mode at a time')
         self.validate_additional_tasks()
 
         WWOneTimeTask.run(self)
         self.logged_in = False
         self.ensure_main(time_out=180)
+
+        if self.config.get(CURRENT_STATE_INSPECTION, False):
+            readable = self.inspect_current_state()
+            self.ensure_main()
+            return readable
 
         if self.config.get(DAILY_PROGRESS_INSPECTION_ONLY, False):
             readable = self.inspect_daily_progress()
@@ -153,13 +164,13 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             target = self.config.get('Which to Farm', self.support_tasks[0])
             if target == self.support_tasks[0]:
                 self.get_task_by_class(TacetTask).farm_tacet(daily=True, used_stamina=used_stamina,
-                                                             config=self.config)
+                                                             config=self.config, budget=budget)
             elif target == self.support_tasks[1]:
                 self.get_task_by_class(ForgeryTask).farm_forgery(daily=True, used_stamina=used_stamina,
-                                                                 config=self.config)
+                                                                 config=self.config, budget=budget)
             else:
                 self.get_task_by_class(SimulationTask).farm_simulation(daily=True, used_stamina=used_stamina,
-                                                                       config=self.config)
+                                                                       config=self.config, budget=budget)
             self.sleep(4)
 
         self.claim_daily()
@@ -257,6 +268,38 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         """Read the daily page without farming or claiming any rewards."""
         self.open_daily()
         return self._daily_points_read_valid
+
+    def read_current_state_waveplates(self):
+        self.openF2Book('gray_book_boss')
+        return self.get_current_stamina_strict()
+
+    def read_current_state_consumption(self):
+        self.openF2Book('gray_book_quest')
+        self.click(0.17, 0.12, after_sleep=1)
+        for page in range(2):
+            boxes = self.ocr(0.1, 0.1, 0.5, 0.75, match=re.compile(r'.+'))
+            try:
+                return read_daily_consumption(boxes, self.height)
+            except ValueError:
+                if page == 1:
+                    raise
+                self.click(0.974, 0.6, after_sleep=1)
+
+    def read_current_state_activity(self):
+        return self.get_total_daily_points()
+
+    def inspect_current_state(self):
+        self.current_state_snapshot = {}
+        for name, read in (('currentWaveplates', self.read_current_state_waveplates),
+                           ('dailyConsumed', self.read_current_state_consumption),
+                           ('dailyActivity', self.read_current_state_activity)):
+            try:
+                value = read()
+            except ValueError:
+                value = None
+            self.current_state_snapshot[name] = value
+            self.info_set('current state ' + name, value if value is not None else 'unreadable')
+        return all(value is not None for value in self.current_state_snapshot.values())
 
     def inspect_battle_pass_status(self):
         """Observe both pages without claiming; True means readable, not claimed."""

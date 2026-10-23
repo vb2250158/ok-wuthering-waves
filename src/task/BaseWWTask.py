@@ -423,7 +423,31 @@ class BaseWWTask(BaseTask):
         self.info_set('back_up_stamina', back_up)
         return current, back_up, current + back_up
 
-    def use_stamina(self, once=60, must_use=0):
+    def get_current_stamina_strict(self):
+        from src.task.StaminaBudget import read_current_stamina
+        boxes = self.wait_ocr(0.49, 0.0, 0.92, 0.10, raise_if_not_found=False,
+                              match=[number_re, stamina_re])
+        return read_current_stamina(boxes)
+
+    def use_stamina(self, once=60, must_use=0, budget=None):
+        if budget is not None:
+            if budget.remaining < once:
+                return False, 0
+            self.sleep(1)
+            current = self.get_current_stamina_strict()
+            used = budget.reserve(once, current)
+            if used == 0:
+                return False, 0
+            if used == 2 * once:
+                self.click_dialog_right_button()
+            else:
+                self.click_dialog_left_button()
+            if self.wait_feature('gem_add_stamina', horizontal_variance=0.4,
+                                 vertical_variance=0.05, time_out=2, settle_time=0.5):
+                raise RuntimeError('waveplate_recharge_forbidden: preserve unknown claim outcome')
+            self.info_set('waveplate budget reserved', budget.reserved)
+            self.info_set('waveplate budget remaining', budget.remaining)
+            return budget.remaining >= once and current - used >= once, used
         self.sleep(1)
         current, back_up, total = self.get_stamina()
         if current >= once * 2:

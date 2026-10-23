@@ -9,7 +9,7 @@ import unittest
 
 SOURCE = Path(__file__).resolve().parents[1] / 'src/task/MultiAccountDailyTask.py'
 A, B, OTHER = 'aa****@example.test', 'bb****@example.test', 'cc****@example.test'
-MODES = ('Daily Progress Inspection Only', 'Daily Reward Status Inspection Only', 'Battle Pass Status Inspection Only')
+MODES = ('Daily Progress Inspection Only', 'Daily Reward Status Inspection Only', 'Battle Pass Status Inspection Only', 'Current State Inspection Only')
 
 
 class WaitFailedException(Exception): pass
@@ -25,6 +25,7 @@ def load_methods(source):
     class DailyTask: pass
     class MouseResetTask: pass
     namespace = dict(re=re, Box=object, WWOneTimeTask=WWOneTimeTask, BaseCombatTask=BaseCombatTask,
+                     CURRENT_STATE_INSPECTION='Current State Inspection Only',
                      DailyTask=DailyTask, MouseResetTask=MouseResetTask, WaitFailedException=WaitFailedException,
                      TaskDisabledException=TaskDisabledException, LOGIN_TEXTS='login',
                      DAILY_PROGRESS_INSPECTION_ONLY=MODES[0], DAILY_REWARD_STATUS_INSPECTION_ONLY=MODES[1],
