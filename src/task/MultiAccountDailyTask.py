@@ -128,20 +128,18 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         self.all_accounts.clear()
 
         daily_config = self.get_task_by_class(DailyTask).config
-        inspection_only = any(daily_config.get(mode, False) for mode in (
-            DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY, BATTLE_PASS_STATUS_INSPECTION_ONLY))
-        inspection_account = normalize_account_name(
-            self.get_task_by_class(DailyTask).config.get(DAILY_PROGRESS_INSPECTION_ACCOUNT, '')
-        ) if inspection_only else ''
-        self._requested_accounts = None if inspection_only else configured_accounts(self.config)
+        modes = [daily_config.get(mode, False) for mode in (
+            DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY, BATTLE_PASS_STATUS_INSPECTION_ONLY)]
+        if any(type(mode) is not bool for mode in modes) or sum(modes) > 1:
+            raise ValueError('inspection_mode_invalid: choose exactly one boolean inspection mode')
+        inspection_only = any(modes)
+        inspection_account = daily_config.get(DAILY_PROGRESS_INSPECTION_ACCOUNT, '') if inspection_only else ''
+        self._requested_accounts = configured_accounts(
+            {SAVED_ACCOUNTS: [inspection_account]} if inspection_only else self.config)
         WWOneTimeTask.run(self)
-        if inspection_only:
-            # Select the saved account through the existing login flow before
-            # the first inspection, just as for subsequent account runs.
-            self.ensure_main(time_out=100)
-            self._switch_to_login()
-        else:
-            self._prepare_first_account_login()
+        # Inspection uses the same exact saved-account selection as daily mode.
+        # Never auto-login an unknown client or enumerate other accounts first.
+        self._prepare_first_account_login()
 
         self.info_set('Completed', self.done_set)
 
@@ -151,11 +149,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 if not expected or not self._same_account(next_account, expected):
                     raise WaitFailedException('account_selection_unconfirmed: refusing to start DailyTask')
             self.info_set('Completed', self.done_set)
-            if inspection_account and normalize_account_name(next_account) != inspection_account:
-                self._mark_done(next_account)
-                self.ensure_main(time_out=100)
-                self._switch_to_login()
-                continue
             self.run_task_by_class(DailyTask)
             self._mark_done(next_account)
             if inspection_account:

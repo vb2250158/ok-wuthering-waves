@@ -32,9 +32,17 @@ or incomplete login stops before DailyTask with an explicit reason. Cancellation
 propagates. The task does not enter credentials or use an unrecognized coordinate
 fallback to get past a prompt.
 
-The three existing inspection-only modes retain their existing account filter and
-inspection behavior. They are not a way to execute normal daily farming. This
-change does not alter DailyTask, its farming/reward decisions, or user task options.
+The three existing inspection-only modes require exactly one
+`Daily Progress Inspection Account` and use the same first-account selection.
+They never log into other saved accounts while searching for the target. Missing,
+invalid or ambiguous targets and conflicting inspection modes stop before daily
+actions. An empty target no longer means inspect all saved accounts. Inspection
+does not alter DailyTask's farming/reward decisions or enable farming.
+
+This is a source candidate for account-scoped inspection, not a Manager admission
+or an installation approval. World entry can invoke the existing monthly-card
+free-reward handler, so "inspection" does not promise zero game-state changes.
+Only the native inspection bodies avoid farming and claim/purchase buttons.
 
 For an external orchestrator, project the authorized frozen account list into this
 official config in the original order. Preserve the original bytes and file/field

@@ -294,13 +294,13 @@ class TestFirstAccountConfirmation(unittest.TestCase):
             task.run()
             self.assertEqual([x['actualDisplay'] for x in task.daily_calls],[A])
             self.assertTrue(task.daily_calls[0]['inspection'])
-            self.assertIsNone(task._requested_accounts)
+            self.assertEqual(task._requested_accounts, (A,))
 
-    def test_inspection_all_does_not_require_daily_account_config(self):
+    def test_inspection_requires_exact_target_without_falling_back_to_all_accounts(self):
         task,ns=make_task(selected=[],inspection=MODES[0],visible=(A,B))
-        task.run()
-        self.assertEqual([x['actualDisplay'] for x in task.daily_calls],[A,B])
-        self.assertTrue(all(x['inspection'] for x in task.daily_calls))
+        with self.assertRaises(ValueError):task.run()
+        self.assertEqual(task.daily_calls,[])
+        self.assertEqual(task.trace,[])
 
     def test_reused_task_clears_completion_and_keeps_user_order(self):
         task,ns=make_task(selected=(B,A))
