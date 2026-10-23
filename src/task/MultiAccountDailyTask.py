@@ -7,7 +7,7 @@ import win32gui
 import win32process
 
 from ok import Box
-from ok.task.exceptions import WaitFailedException
+from ok.task.exceptions import TaskDisabledException, WaitFailedException
 from src.task.DailyTask import DailyTask, DAILY_PROGRESS_INSPECTION_ONLY, DAILY_PROGRESS_INSPECTION_ACCOUNT, DAILY_REWARD_STATUS_INSPECTION_ONLY, BATTLE_PASS_STATUS_INSPECTION_ONLY
 from src.task.WWOneTimeTask import WWOneTimeTask
 from src.task.BaseCombatTask import BaseCombatTask
@@ -15,6 +15,7 @@ from src.task.BaseWWTask import LOGIN_TEXTS
 from src.task.MouseResetTask import MouseResetTask
 
 account_pattern = re.compile(r'\*\*\*\*')
+SAVED_ACCOUNTS = 'Saved Accounts'
 
 CB_GETCOUNT, CB_GETCURSEL, CB_GETLBTEXT, CB_GETLBTEXTLEN, CB_SETCURSEL = 0x146, 0x147, 0x148, 0x149, 0x14E
 CBN_SELCHANGE = 1
@@ -27,6 +28,27 @@ def normalize_account_name(account):
     if not account:
         return account
     return account.lower().replace('0', 'o').replace('.con', '.com')
+
+
+def configured_accounts(config):
+    """Keep the user's order; missing or ambiguous scope must not run a client."""
+    accounts = config.get(SAVED_ACCOUNTS)
+    if not isinstance(accounts, list) or not accounts:
+        raise ValueError('account_selection_required: configure an ordered Saved Accounts list')
+    seen = set()
+    for account in accounts:
+        if (not isinstance(account, str) or not account.strip() or account != account.strip()
+                or any(ord(char) < 32 for char in account)):
+            raise ValueError('account_selection_invalid: saved account labels must be nonempty strings')
+        key = normalize_account_name(account).casefold()
+        if key in seen:
+            raise ValueError('account_selection_ambiguous: saved account labels collide')
+        seen.add(key)
+    return tuple(accounts)
+
+
+def next_requested_account(task):
+    return next((name for name in task._requested_accounts if not task._is_done(name)), None)
 
 
 def find_login_combo(game_hwnd):
@@ -80,6 +102,11 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         super().__init__(*args, **kwargs)
         self.name = "👥 Multi Account Daily Task"
         self.description = "Automatically switch accounts and run Daily Task for each account"
+        self.default_config = {SAVED_ACCOUNTS: []}
+        self.config_description = {
+            SAVED_ACCOUNTS: 'Saved-login labels in execution order. Daily mode requires a nonempty '
+                            'list and never runs other accounts. This is a selection, not identity evidence.'
+        }
         self.add_exit_after_config()
         self.done_set = set()
         self.all_accounts = set()
@@ -97,7 +124,6 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         return normalize_account_name(left) == normalize_account_name(right)
 
     def run(self):
-        WWOneTimeTask.run(self)
         self.done_set.clear()
         self.all_accounts.clear()
 
@@ -107,21 +133,23 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         inspection_account = normalize_account_name(
             self.get_task_by_class(DailyTask).config.get(DAILY_PROGRESS_INSPECTION_ACCOUNT, '')
         ) if inspection_only else ''
+        self._requested_accounts = None if inspection_only else configured_accounts(self.config)
+        WWOneTimeTask.run(self)
         if inspection_only:
             # Select the saved account through the existing login flow before
             # the first inspection, just as for subsequent account runs.
             self.ensure_main(time_out=100)
             self._switch_to_login()
         else:
-            self.run_task_by_class(DailyTask)
-            self.ensure_main(time_out=100)
-            self._switch_to_login()
-            detected = self._detect_current_account_from_login()
-            self._mark_done(detected)
+            self._prepare_first_account_login()
 
         self.info_set('Completed', self.done_set)
 
         while next_account := self._select_and_login_account():
+            if self._requested_accounts is not None:
+                expected = next_requested_account(self)
+                if not expected or not self._same_account(next_account, expected):
+                    raise WaitFailedException('account_selection_unconfirmed: refusing to start DailyTask')
             self.info_set('Completed', self.done_set)
             if inspection_account and normalize_account_name(next_account) != inspection_account:
                 self._mark_done(next_account)
@@ -137,6 +165,24 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
         if inspection_account:
             raise Exception('Requested saved account was not found for daily inspection')
+        if self._requested_accounts is not None and next_requested_account(self):
+            raise WaitFailedException('account_not_available: requested saved account was not confirmed')
+
+    def _prepare_first_account_login(self):
+        # Do not auto-login an unknown current client just to identify it later.
+        # Both predicates are existing read-only official recognizers.
+        def ready():
+            if self._login_combo() or self.do_find_account_drop_down():
+                return 'login'
+            if self.in_team_and_world():
+                return 'world'
+            return None
+        state = self.wait_until(ready, time_out=100, raise_if_not_found=False)
+        if state == 'world':
+            self.ensure_main(time_out=100)
+            self._switch_to_login()
+        elif state != 'login':
+            raise WaitFailedException('account_login_screen_unavailable: manual login or verification required; no daily actions started')
 
     def _click_center_offset(self, offset_x, offset_y, after_sleep=0.5):
         h, w = self.frame.shape[:2]
@@ -163,13 +209,23 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         for name in accounts:
             self.all_accounts.add(normalize_account_name(name))
         self.info_set('All Accounts', self.all_accounts)
+        requested = getattr(self, '_requested_accounts', None)
+        target = next_requested_account(self) if requested is not None else None
+        if requested is not None and target is None:
+            return None
+        if target is not None and sum(self._same_account(name, target) for name in accounts) > 1:
+            raise WaitFailedException('account_selection_ambiguous: multiple saved entries match the requested account')
         for index, name in enumerate(accounts):
             if self._is_done(name):
                 continue
+            if target is not None and not self._same_account(name, target):
+                continue
             if not select_combo_item(combo, index):
-                raise Exception(self.tr('Failed to switch account'))
+                raise WaitFailedException('account_selection_unconfirmed: saved selection did not stick')
             self.log_info(self.tr('Confirmed selected account: {account}').format(account=name))
             return name
+        if target is not None:
+            raise WaitFailedException('account_not_available: requested account is not in the saved login list')
         return None
 
     def _detect_current_account_from_login(self):
@@ -177,26 +233,35 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             if account := combo_selected_item(combo):
                 self.log_info(self.tr('Current account: {account}').format(account=account))
                 return account
-        texts = self.ocr(match=account_pattern)
-        if texts:
-            self.log_info(self.tr('Current account: {account}').format(account=texts[0]))
-            return texts[0].name
+        # An arbitrary OCR match from an open list is not a selected account.
+        if account := self.do_find_account_drop_down():
+            self.log_info(self.tr('Current account: {account}').format(account=account))
+            return account.name
         return None
 
     def _click_account_in_list(self):
         accounts = self.ocr(match=account_pattern)
         next_account = None
+        requested = getattr(self, '_requested_accounts', None)
+        target = next_requested_account(self) if requested is not None else None
+        if requested is not None and target is None:
+            return None
+        if target is not None and len({box.name for box in accounts if self._same_account(box.name, target)}) > 1:
+            raise WaitFailedException('account_selection_ambiguous: multiple OCR labels match the requested account')
         # self.screenshot('_click_account_in_list')
         for account in accounts:
             self.all_accounts.add(normalize_account_name(account.name))
             self.info_set('All Accounts', self.all_accounts)
-            if next_account is None and not self._is_done(account.name):
+            if (next_account is None and not self._is_done(account.name)
+                    and (target is None or self._same_account(account.name, target))):
                 next_account = account.name
                 self.click(account, after_sleep=2)
         self.log_info(self.tr('Click next account: {account}').format(account=next_account))
         return next_account
 
     def _select_and_login_account(self):
+        if getattr(self, '_requested_accounts', None) is not None and next_requested_account(self) is None:
+            return None
         current_account = None
         mouse_reset_task = self.executor.get_task_by_class(MouseResetTask)
         mouse_reset_was_enabled = mouse_reset_task.enabled if mouse_reset_task else False
@@ -232,6 +297,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                     time_out=10, raise_if_not_found=False
                 )
                 if not account:
+                    if getattr(self, '_requested_accounts', None) is not None:
+                        raise WaitFailedException('account_not_available: requested account was not found in the saved list')
                     # _click_account_in_list() returns None once every account the login
                     # screen offers is already in done_set.  That is the normal end of a
                     # multi-account sweep, so let run()'s while loop stop instead of
@@ -253,17 +320,22 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                         attempt=attempt, max_retries=max_retries))
                 else:
                     self.log_error(self.tr(
-                        'Account selection failed after {max_retries} retries; {account} is still not displayed. Continuing login attempt'
+                        'Account selection failed after {max_retries} retries; {account} is still not displayed. Stopping before login'
                     ).format(max_retries=max_retries, account=account))
                     raise Exception(self.tr('Failed to switch account'))
+            if not current_account:
+                raise WaitFailedException('account_selection_unconfirmed: no saved account was selected')
             self.sleep(4)
+            displayed_account = self._detect_current_account_from_login()
+            if not displayed_account or not self._same_account(current_account, displayed_account):
+                raise WaitFailedException('account_selection_unconfirmed: displayed saved account changed before login')
             texts = self.ocr()
             login_btn = self.find_boxes(texts, boundary=self.box_of_screen(0.3, 0.3, 0.7, 0.8),
                                         match=LOGIN_TEXTS)
             if login_btn:
                 self.click(login_btn, after_sleep=3)
             else:
-                self.click_relative(0.5, 0.568, hcenter=True, vcenter=True, after_sleep=3)
+                raise WaitFailedException('account_login_confirmation_unavailable: manual login or verification required; no daily actions started')
             self.logged_in = False
             # self.update_capture({
             #     'windows': {
@@ -271,9 +343,14 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
             #         'capture_method': ['WGC', 'BitBlt_RenderFull'],
             #     }
             # })
-            self.ensure_main(time_out=180)
+            try:
+                self.ensure_main(time_out=180)
+            except TaskDisabledException:
+                raise
+            except Exception as error:
+                raise WaitFailedException('account_login_unconfirmed: finish saved login or verification manually before retrying') from error
             self.log_info(self.tr('Login successful'))
-            return current_account
+            return displayed_account
         finally:
             if mouse_reset_was_enabled:
                 mouse_reset_task.enable()
