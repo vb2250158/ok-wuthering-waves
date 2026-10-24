@@ -68,6 +68,8 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         }
         material_option_list = ['Resonator EXP', 'Weapon EXP', 'Shell Credit']
         self.config_type = {
+            # Optional invocation authority is injected by the caller; Qt has no nullable widget.
+            SPEND_LIMIT: {'hidden': True},
             'Which to Farm': {
                 'type': "drop_down",
                 'options': self.support_tasks,
