@@ -117,6 +117,9 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         if self.config.get(CURRENT_STATE_INSPECTION, False):
             readable = self.inspect_current_state()
             self.ensure_main()
+            if not readable:
+                unreadable = ', '.join(name for name, value in self.current_state_snapshot.items() if value is None)
+                raise ValueError(f'current_state_inspection_incomplete: unreadable fields: {unreadable}')
             return readable
 
         if self.config.get(DAILY_PROGRESS_INSPECTION_ONLY, False):
