@@ -75,6 +75,7 @@ def make_task(*, selected=(A, B), visible=(B, OTHER, A), current=B, mode='combo'
         if seconds == 4 and failure == 'identity_missing': task.display=None
     task.sleep = sleep
     task.in_team_and_world = lambda:task.location == 'world'
+    task.find_one = lambda *args, **kwargs: None
     task._login_combo = lambda:1 if mode == 'combo' and task.location == 'login' else None
     def switch_login():
         task.trace.append(('switch-login',))
@@ -235,8 +236,11 @@ class TestFirstAccountConfirmation(unittest.TestCase):
 
     def test_human_screen_before_selection_is_read_only_failure(self):
         task,ns=make_task(location='verification')
-        with self.assertRaisesRegex(WaitFailedException,'manual login or verification required'):task.run()
+        with self.assertRaisesRegex(WaitFailedException,'account_login_screen_unavailable:.*no daily actions started'):
+            task.run()
         self.assertEqual(task.daily_calls,[])
+        self.assertEqual(task.done_set, set())
+        self.assertIsNone(task.observed_identity)
         self.assertFalse(any(x[0] in {'click','select','switch-login'} for x in task.trace))
 
     def test_missing_login_confirmation_has_no_coordinate_fallback(self):
