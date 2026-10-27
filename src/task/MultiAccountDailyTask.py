@@ -173,19 +173,52 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
 
     def _prepare_first_account_login(self):
         # Do not auto-login an unknown current client just to identify it later.
-        # Both predicates are existing read-only official recognizers.
+        # A cold CN client can stop at the title page with no account picker.
+        # Open only the recognized account control, never its Connect button.
+        title_opened = False
+
         def ready():
+            nonlocal title_opened
             if self._login_combo() or self.do_find_account_drop_down():
                 return 'login'
             if self.in_team_and_world():
                 return 'world'
+            if not title_opened and self._title_account_entry():
+                self.sleep(0.5)
+                self.next_frame()
+                if self._login_combo() or self.do_find_account_drop_down():
+                    return 'login'
+                if self.in_team_and_world():
+                    return 'world'
+                if entry := self._title_account_entry():
+                    title_opened = True
+                    self.log_info('Opening recognized title-page account list; no login or daily action')
+                    self.click(entry, after_sleep=0.5)
             return None
         state = self.wait_until(ready, time_out=100, raise_if_not_found=False)
         if state == 'world':
             self.ensure_main(time_out=100)
             self._switch_to_login()
         elif state != 'login':
-            raise WaitFailedException('account_login_screen_unavailable: manual login or verification required; no daily actions started')
+            raise WaitFailedException('account_login_screen_unavailable: saved-account list or world not recognized within 100 seconds; no daily actions started')
+
+    def _title_account_entry(self):
+        # Qualify the exact source frame with both the native icon template and
+        # the visible CN title anchors. An overlaid credential/verification form
+        # must not be dismissed even if its title background remains visible.
+        entry = self.find_one('switch_account', vertical_variance=0.1, threshold=0.8)
+        if not entry:
+            return None
+        texts = self.ocr()
+        if self.find_boxes(texts, match=re.compile(
+                r'密码|密碼|验证码|驗證碼|验证|驗證|手机号|手機號|短信|电子邮箱|電子郵箱|'
+                r'password|verification|captcha|one.time.code', re.IGNORECASE)):
+            return None
+        connect = self.find_boxes(texts, boundary=self.box_of_screen(0.30, 0.90, 0.70, 0.99),
+                                  match=re.compile(r'^点击连接$'))
+        account = self.find_boxes(texts, boundary=self.box_of_screen(0.90, 0.40, 1.0, 0.65),
+                                  match=re.compile(r'^账号$'))
+        return entry if len(connect or []) == 1 and len(account or []) == 1 else None
 
     def _click_center_offset(self, offset_x, offset_y, after_sleep=0.5):
         h, w = self.frame.shape[:2]
