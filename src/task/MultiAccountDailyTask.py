@@ -177,9 +177,10 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         # Open only the recognized account control, never its Connect button.
         title_opened = False
         logout_confirmed = False
+        login_opened = False
 
         def ready():
-            nonlocal title_opened, logout_confirmed
+            nonlocal title_opened, logout_confirmed, login_opened
             if self._login_combo() or self.do_find_account_drop_down():
                 return 'login'
             if self.in_team_and_world():
@@ -195,6 +196,20 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                     logout_confirmed = True
                     self.log_info('Confirming recognized title-page logout once; saved-account selection still required')
                     self.click(confirmation, after_sleep=0.5)
+                return None
+            if logout_confirmed and not login_opened and self._title_logged_out_login_entry():
+                self.sleep(0.5)
+                self.next_frame()
+                if self._login_combo() or self.do_find_account_drop_down():
+                    return 'login'
+                if self.in_team_and_world():
+                    return 'world'
+                if entry := self._title_logged_out_login_entry():
+                    # Opening the picker does not confirm or select an account.
+                    # Set before clicking so an uncertain result is never retried.
+                    login_opened = True
+                    self.log_info('Opening recognized logged-out title login once; saved-account selection still required')
+                    self.click(entry, after_sleep=0.5)
                 return None
             if not title_opened and self._title_account_entry():
                 self.sleep(0.5)
@@ -259,6 +274,41 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                 return None
             matched.append(hits[0])
         return matched[-1]
+
+    def _title_logged_out_login_entry(self):
+        # The observed CN page after logout has right-side Exit/Login/Settings.
+        # Qualify all three from one frame; never click through an account form
+        # or modal, and never use the logged-in title's Connect action.
+        texts = self.ocr()
+        anchors = (
+            (r'^退出$', (0.90, 0.15, 1.0, 0.23)),
+            (r'^登入$', (0.90, 0.27, 1.0, 0.36)),
+            (r'^设置$', (0.90, 0.39, 1.0, 0.48)),
+        )
+        matched = []
+        for text, bounds in anchors:
+            hits = self.find_boxes(texts, match=re.compile(text))
+            if len(hits or []) != 1 or not 0.8 <= getattr(hits[0], 'confidence', 0) <= 1.0:
+                return None
+            if not self.find_boxes(hits, boundary=self.box_of_screen(*bounds)):
+                return None
+            matched.append(hits[0])
+        # Known title labels may accompany the three controls. Any other OCR
+        # text, including an unfamiliar challenge or error, blocks the click.
+        # Match both text and location; do not guess from a modal keyword list.
+        static_labels = (
+            (r'^(?:鸣潮|WUTHERING\s*WAVES)$', (0.0, 0.0, 0.14, 0.13)),
+            (r'^CN_Windows_Product_[0-9._]+(?:\s*\*\s*HD)?$', (0.45, 0.0, 1.0, 0.10)),
+            (r'^(?:16\+|CADPA|适龄提示|登录状态[：:]\s*0)$', (0.90, 0.86, 1.0, 1.0)),
+        )
+        for box in texts:
+            if any(box is control for control in matched):
+                continue
+            if not any(self.find_boxes([box], match=re.compile(text),
+                                       boundary=self.box_of_screen(*bounds))
+                       for text, bounds in static_labels):
+                return None
+        return matched[1]
 
     def _click_center_offset(self, offset_x, offset_y, after_sleep=0.5):
         h, w = self.frame.shape[:2]
