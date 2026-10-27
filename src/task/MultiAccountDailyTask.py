@@ -176,13 +176,26 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         # A cold CN client can stop at the title page with no account picker.
         # Open only the recognized account control, never its Connect button.
         title_opened = False
+        logout_confirmed = False
 
         def ready():
-            nonlocal title_opened
+            nonlocal title_opened, logout_confirmed
             if self._login_combo() or self.do_find_account_drop_down():
                 return 'login'
             if self.in_team_and_world():
                 return 'world'
+            if title_opened and not logout_confirmed and self._title_logout_confirmation():
+                self.sleep(0.5)
+                self.next_frame()
+                if self._login_combo() or self.do_find_account_drop_down():
+                    return 'login'
+                if confirmation := self._title_logout_confirmation():
+                    # A failed or uncertain click must never be retried. The
+                    # original login deadline still bounds the next transition.
+                    logout_confirmed = True
+                    self.log_info('Confirming recognized title-page logout once; saved-account selection still required')
+                    self.click(confirmation, after_sleep=0.5)
+                return None
             if not title_opened and self._title_account_entry():
                 self.sleep(0.5)
                 self.next_frame()
@@ -210,6 +223,8 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         if not entry:
             return None
         texts = self.ocr()
+        if self.find_boxes(texts, match=re.compile(r'^确认(?:登出|退出)(?:账号[?？])?$')):
+            return None  # Never click the title control through an existing modal.
         if self.find_boxes(texts, match=re.compile(
                 r'密码|密碼|验证码|驗證碼|验证|驗證|手机号|手機號|短信|电子邮箱|電子郵箱|'
                 r'password|verification|captcha|one.time.code', re.IGNORECASE)):
@@ -219,6 +234,31 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         account = self.find_boxes(texts, boundary=self.box_of_screen(0.90, 0.40, 1.0, 0.65),
                                   match=re.compile(r'^账号$'))
         return entry if len(connect or []) == 1 and len(account or []) == 1 else None
+
+    def _title_logout_confirmation(self):
+        # Only the observed CN account-logout modal is eligible. This predicate
+        # is acted on solely after this invocation opened the title account menu.
+        texts = self.ocr()
+        if self.find_boxes(texts, match=re.compile(
+                r'密码|密碼|验证码|驗證碼|验证|驗證|手机号|手機號|短信|电子邮箱|電子郵箱|'
+                r'支付|付款|购买|購買|充值|授权|授權|password|verification|captcha|one.time.code',
+                re.IGNORECASE)):
+            return None
+        anchors = (
+            (r'^提示$', (0.20, 0.27, 0.38, 0.40)),
+            (r'^确认登出账号[?？]$', (0.30, 0.40, 0.70, 0.55)),
+            (r'^取消$', (0.25, 0.55, 0.45, 0.70)),
+            (r'^确认登出$', (0.55, 0.55, 0.75, 0.70)),
+        )
+        matched = []
+        for text, bounds in anchors:
+            hits = self.find_boxes(texts, match=re.compile(text))
+            if len(hits or []) != 1 or getattr(hits[0], 'confidence', 0) < 0.8:
+                return None
+            if not self.find_boxes(hits, boundary=self.box_of_screen(*bounds)):
+                return None
+            matched.append(hits[0])
+        return matched[-1]
 
     def _click_center_offset(self, offset_x, offset_y, after_sleep=0.5):
         h, w = self.frame.shape[:2]
