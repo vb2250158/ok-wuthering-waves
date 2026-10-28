@@ -665,10 +665,21 @@ class BaseCombatTask(CombatCheck):
                 logger.info(f'not in team while switching chars_{current_char}_to_{switch_to} {now - start}')
                 # if self.debug:
                 #     self.screenshot(f'not in team while switching chars_{current_char}_to_{switch_to} {now - start}')
-                self.raise_not_in_combat(f'not in_team while switching')
-                if now - start > self.switch_char_time_out:
-                    self.raise_not_in_combat(
-                        f'switch too long failed chars_{current_char}_to_{switch_to}, {now - start}')
+                # A missing team HUD is not proof that combat has finished.
+                # Recheck fresh frames within the existing switch deadline.
+                remaining = self.switch_char_time_out - (time.time() - start)
+                recovered = remaining > 0 and self.wait_until(
+                    lambda: self.in_team()[0], time_out=remaining, raise_if_not_found=False)
+                if not recovered:
+                    try:
+                        self.raise_not_in_combat('team UI unavailable while switching')
+                    except CharDeadException:
+                        raise  # Preserve the official death/revival recovery path.
+                    except NotInCombatException as error:
+                        # combat_once consumes NotInCombatException as a normal end.
+                        # Unknown team state must instead stop before reward seeking.
+                        raise RuntimeError(
+                            'Team UI unavailable while switching; combat completion unconfirmed') from error
                 self.next_frame()
                 continue
             if current_index != switch_to.index:

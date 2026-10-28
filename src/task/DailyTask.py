@@ -1,8 +1,12 @@
 import re
+from pathlib import Path
+
+import cv2
 
 
 from ok import Logger, TaskDisabledException
 from src.task.BaseWWTask import number_re
+from src.task.StaminaBudget import SPEND_LIMIT, CURRENT_STATE_INSPECTION, configured_budget, read_daily_consumption
 from src.task.FarmEchoTask import FarmEchoTask
 from src.task.ForgeryTask import ForgeryTask
 from src.task.GardenTask import GardenTask
@@ -20,6 +24,11 @@ AUTO_FARM_NIGHTMARE_NEST = 'Auto Farm all Nightmare Nest'
 MERGE_ECHO_IF_DISCARDED_OVER_1000 = 'Merge Echo If discarded > 1000'
 TELEPORT_AND_FARM_4C_ECHO = 'Teleport and Farm 4C Echo'
 ADDITIONAL_TASKS = 'Additional Tasks to Run After Daily Task'
+DAILY_PROGRESS_INSPECTION_ONLY = 'Daily Progress Inspection Only'
+DAILY_PROGRESS_INSPECTION_ACCOUNT = 'Daily Progress Inspection Account'
+DAILY_REWARD_STATUS_INSPECTION_ONLY = 'Daily Reward Status Inspection Only'
+BATTLE_PASS_STATUS_INSPECTION_ONLY = 'Battle Pass Status Inspection Only'
+DAILY_REWARD_CHECK_CENTERS = (0.392, 0.525, 0.659, 0.792, 0.925)
 
 
 class DailyTask(WWOneTimeTask, BaseCombatTask):
@@ -36,8 +45,20 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             'Material Selection': 'Shell Credit',
             'Farm Nightmare Nest for Daily Echo': True,
             ADDITIONAL_TASKS: [CHECK_WEEKLY_GARDEN],
+            DAILY_PROGRESS_INSPECTION_ONLY: False,
+            DAILY_PROGRESS_INSPECTION_ACCOUNT: '',
+            DAILY_REWARD_STATUS_INSPECTION_ONLY: False,
+            BATTLE_PASS_STATUS_INSPECTION_ONLY: False,
+            SPEND_LIMIT: None,
+            CURRENT_STATE_INSPECTION: False,
         }
         self.config_description = {
+            SPEND_LIMIT: 'Optional maximum natural waveplates for this invocation. No reserve or recharge. Null keeps the original daily policy.',
+            DAILY_PROGRESS_INSPECTION_ONLY: 'Only inspect daily progress; do not farm or claim rewards.',
+            DAILY_PROGRESS_INSPECTION_ACCOUNT: 'Exact saved-login account for inspection. Missing or ambiguous targets stop.',
+            CURRENT_STATE_INSPECTION: 'Only read current natural waveplates, daily consumed waveplates, and activity. No farming, claims or recharge.',
+            DAILY_REWARD_STATUS_INSPECTION_ONLY: 'Only inspect whether all five daily rewards are already claimed; never claim rewards.',
+            BATTLE_PASS_STATUS_INSPECTION_ONLY: 'Only observe battle pass task and reward pages; never claim or purchase rewards.',
             'Which Tacet Suppression to Farm': 'The Tacet Suppression number in the F2 list.',
             'Which Forgery Challenge to Farm': 'The Forgery Challenge number in the F2 list.',
             'Material Selection': 'Resonator EXP / Weapon EXP / Shell Credit',
@@ -47,6 +68,8 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         }
         material_option_list = ['Resonator EXP', 'Weapon EXP', 'Shell Credit']
         self.config_type = {
+            # Optional invocation authority is injected by the caller; Qt has no nullable widget.
+            SPEND_LIMIT: {'hidden': True},
             'Which to Farm': {
                 'type': "drop_down",
                 'options': self.support_tasks,
@@ -75,11 +98,44 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
         self.description = "Login, claim monthly card, farm echo, and claim daily reward"
 
     def run(self):
+        budget = configured_budget(self.config)
+        if sum(bool(self.config.get(mode, False)) for mode in (
+                DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY,
+                BATTLE_PASS_STATUS_INSPECTION_ONLY, CURRENT_STATE_INSPECTION)) > 1:
+            raise ValueError('Choose one daily inspection mode at a time')
+        # This policy covers entry, every inspection helper and return to world.
+        # It is reset on each run, including a later ordinary daily execution.
+        self.readonly_inspection = any(self.config.get(mode, False) for mode in (
+            DAILY_PROGRESS_INSPECTION_ONLY, DAILY_REWARD_STATUS_INSPECTION_ONLY,
+            BATTLE_PASS_STATUS_INSPECTION_ONLY, CURRENT_STATE_INSPECTION))
         self.validate_additional_tasks()
 
         WWOneTimeTask.run(self)
         self.logged_in = False
         self.ensure_main(time_out=180)
+
+        if self.config.get(CURRENT_STATE_INSPECTION, False):
+            readable = self.inspect_current_state()
+            self.ensure_main()
+            if not readable:
+                unreadable = ', '.join(name for name, value in self.current_state_snapshot.items() if value is None)
+                raise ValueError(f'current_state_inspection_incomplete: unreadable fields: {unreadable}')
+            return readable
+
+        if self.config.get(DAILY_PROGRESS_INSPECTION_ONLY, False):
+            readable = self.inspect_daily_progress()
+            self.ensure_main()
+            return readable
+
+        if self.config.get(DAILY_REWARD_STATUS_INSPECTION_ONLY, False):
+            claimed = self.inspect_daily_reward_status()
+            self.ensure_main()
+            return claimed
+
+        if self.config.get(BATTLE_PASS_STATUS_INSPECTION_ONLY, False):
+            readable = self.inspect_battle_pass_status()
+            self.ensure_main()
+            return readable
 
         additional_tasks = self.config.get(ADDITIONAL_TASKS) or []
         condition1 = AUTO_FARM_NIGHTMARE_NEST in additional_tasks
@@ -118,13 +174,13 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
             target = self.config.get('Which to Farm', self.support_tasks[0])
             if target == self.support_tasks[0]:
                 self.get_task_by_class(TacetTask).farm_tacet(daily=True, used_stamina=used_stamina,
-                                                             config=self.config)
+                                                             config=self.config, budget=budget)
             elif target == self.support_tasks[1]:
                 self.get_task_by_class(ForgeryTask).farm_forgery(daily=True, used_stamina=used_stamina,
-                                                                 config=self.config)
+                                                                 config=self.config, budget=budget)
             else:
                 self.get_task_by_class(SimulationTask).farm_simulation(daily=True, used_stamina=used_stamina,
-                                                                       config=self.config)
+                                                                       config=self.config, budget=budget)
             self.sleep(4)
 
         self.claim_daily()
@@ -217,6 +273,133 @@ class DailyTask(WWOneTimeTask, BaseCombatTask):
                           post_action=lambda: self.click(0.68, 0.91, after_sleep=1), settle_time=1,
                           raise_if_not_found=False)
         self.ensure_main()
+
+    def inspect_daily_progress(self):
+        """Read the daily page without farming or claiming any rewards."""
+        self.open_daily()
+        return self._daily_points_read_valid
+
+    def read_current_state_waveplates(self):
+        self.openF2Book('gray_book_boss')
+        return self.get_current_stamina_strict()
+
+    def read_current_state_consumption(self):
+        self.openF2Book('gray_book_quest')
+        self.click(0.17, 0.12, after_sleep=1)
+        for page in range(2):
+            boxes = self.ocr(0.1, 0.1, 0.5, 0.75, match=re.compile(r'.+'))
+            try:
+                return read_daily_consumption(boxes, self.height)
+            except ValueError:
+                if page == 1:
+                    raise
+                self.click(0.974, 0.6, after_sleep=1)
+
+    def read_current_state_activity(self):
+        return self.get_total_daily_points()
+
+    def inspect_current_state(self):
+        self.current_state_snapshot = {}
+        for name, read in (('currentWaveplates', self.read_current_state_waveplates),
+                           ('dailyConsumed', self.read_current_state_consumption),
+                           ('dailyActivity', self.read_current_state_activity)):
+            try:
+                value = read()
+            except ValueError:
+                value = None
+            self.current_state_snapshot[name] = value
+            self.info_set('current state ' + name, value if value is not None else 'unreadable')
+        return all(value is not None for value in self.current_state_snapshot.values())
+
+    def inspect_battle_pass_status(self):
+        """Observe both pages without claiming; True means readable, not claimed."""
+        self.send_key_down('alt')
+        try:
+            self.sleep(0.05)
+            self.click_relative(0.86, 0.05)
+        finally:
+            self.send_key_up('alt')
+        if not self.wait_ocr(0.2, 0.13, 0.32, 0.22, match=re.compile(r'\d+'),
+                             settle_time=1, raise_if_not_found=False):
+            return False
+        tasks = self.inspect_battle_pass_page('tasks')
+        rewards = self.inspect_battle_pass_page('rewards')
+        readable = (any('电台任务' in box.name for box in tasks)
+                    and any('先约电台' in box.name for box in rewards))
+        earlier = rewards
+        if readable:
+            # The reward tab starts at the current level. Observe earlier free
+            # levels too; the external verifier must establish complete coverage.
+            # Bound the sweep so input observations fit the artifact contract.
+            for _ in range(6):
+                earlier = self.inspect_battle_pass_page('rewards', scroll_back=True)
+                if not any('先约电台' in box.name for box in earlier):
+                    readable = False
+                    break
+        # Page titles alone cannot prove that the navigation exposed history.
+        # Require the earliest free level after the bounded sweep; the external
+        # verifier still checks every unlocked level and all claimed markers.
+        readable = readable and self.battle_pass_first_visible_free_level(earlier) == 1
+        self.info_set('battle pass status', 'pages observed; no claims' if readable else 'pages unreadable')
+        return readable
+
+    def inspect_battle_pass_page(self, page, *, scroll_back=False):
+        """Read one named page so observations retain their own input boundary."""
+        if type(scroll_back) is not bool or (scroll_back and page != 'rewards'):
+            raise ValueError('Only reward history may be scrolled')
+        if page == 'tasks':
+            self.click_relative(0.04, 0.3, after_sleep=1)
+        elif page == 'rewards':
+            if scroll_back:
+                # Horizontal navigation inside the free reward grid; no claim
+                # or premium purchase control is touched.
+                # The live grid advances only about half a level per four
+                # notches. Pace a bounded group before retaining the next
+                # OCR input; eight total page inputs remain the hard limit.
+                for _ in range(8):
+                    self.scroll_relative(0.5, 0.45, 4)
+                    self.sleep(0.12)
+                self.sleep(1)
+            else:
+                self.click_relative(0.04, 0.17, after_sleep=2)
+        else:
+            raise ValueError('Unknown battle pass inspection page')
+        return self.ocr(0.02, 0.02, 0.98, 0.95, match=re.compile(r'.+'))
+
+    def battle_pass_first_visible_free_level(self, boxes):
+        levels = []
+        for box in boxes:
+            if not re.fullmatch(r'\d{1,2}', box.name.strip()):
+                continue
+            if not all(hasattr(box, field) for field in ('x', 'y', 'width', 'height')):
+                continue
+            center_x = (box.x + box.width / 2) / self.width
+            center_y = (box.y + box.height / 2) / self.height
+            if .23 <= center_x <= .70 and .30 <= center_y <= .37:
+                level = int(box.name.strip())
+                if 1 <= level <= 70:
+                    levels.append(level)
+        return min(levels) if levels else None
+
+    def inspect_daily_reward_status(self):
+        """Observe already-claimed daily rewards without clicking any claim control."""
+        _, reward_ready = self.open_daily()
+        if not self._daily_points_read_valid or not reward_ready:
+            return False
+        frame = self.frame
+        template_path = Path(__file__).with_name('resources') / 'daily_reward_claimed_check.png'
+        template = cv2.imread(str(template_path))
+        if template is None:
+            raise ValueError('Daily reward claimed-check template is unavailable')
+        height, width = frame.shape[:2]
+        template = cv2.resize(template, (max(1, round(template.shape[1] * width / 3840)),
+                                         max(1, round(template.shape[0] * height / 2160))))
+        for center in DAILY_REWARD_CHECK_CENTERS:
+            if not self.find_one('daily_reward_claimed_check', threshold=0.95, template=template, frame=frame,
+                                 box=self.box_of_screen(center - 0.027, 0.85, center + 0.027, 0.915)):
+                return False
+        self.info_set('daily reward status', 'all five rewards already claimed')
+        return True
 
     def open_daily(self):
         self.log_info('open_daily')

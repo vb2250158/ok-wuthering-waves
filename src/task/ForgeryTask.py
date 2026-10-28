@@ -29,7 +29,7 @@ class ForgeryTask(DomainTask):
         self.make_sure_in_world()
         self.farm_forgery()
 
-    def farm_forgery(self, daily=False, used_stamina=0, config=None):
+    def farm_forgery(self, daily=False, used_stamina=0, config=None, budget=None):
         if daily:
             must_use = 180 - used_stamina
         else:
@@ -41,7 +41,7 @@ class ForgeryTask(DomainTask):
         def teleport_once():
             self.teleport_into_domain(serial, daily)
 
-        self.farm_domain_with_recovery_loop(must_use, teleport_once)
+        self.farm_domain_with_recovery_loop(must_use, teleport_once, budget=budget)
 
     def purification_material(self):
         self.send_key("esc")

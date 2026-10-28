@@ -45,7 +45,7 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
         self.wait_in_team_and_world(esc=True)
         self.farm_tacet()
 
-    def farm_tacet(self, daily=False, used_stamina=0, config=None, max_recovery_retries=3):
+    def farm_tacet(self, daily=False, used_stamina=0, config=None, max_recovery_retries=3, budget=None):
         if config is None:
             config = self.config
         if daily:
@@ -56,9 +56,13 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
         recovery_retries = 0
         self.realm_entry_at_heal_point = False
         while True:
+            if budget is not None and budget.remaining < self.stamina_once:
+                return self.not_enough_stamina()
             self.sleep(1)
             self.openF2Book("gray_book_boss")
             current, back_up, total = self.get_stamina()
+            if budget is not None:
+                current = total = self.get_current_stamina_strict()
             if current == -1:
                 self.click_relative(0.04, 0.4, after_sleep=1)
                 current, back_up, total = self.get_stamina()
@@ -89,7 +93,7 @@ class TacetTask(WWOneTimeTask, BaseCombatTask):
                     self.esc_cancel()
                     self.log_info('is not claim treasure, restart challenge')
                     continue
-                can_continue, used = self.use_stamina(once=self.stamina_once, must_use=must_use)
+                can_continue, used = self.use_stamina(once=self.stamina_once, must_use=must_use, budget=budget)
                 self.info_incr('used stamina', used)
                 self.sleep(4)
                 if not can_continue:
