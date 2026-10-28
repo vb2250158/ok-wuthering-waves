@@ -1,5 +1,6 @@
 """Actual upstream method AST with synthetic OCR/OS only; no SDK, models or app input."""
 from pathlib import Path
+import json
 from types import SimpleNamespace
 import unittest
 from TestFirstAccountConfirmation import (A, B, OTHER, make_task,
@@ -83,6 +84,22 @@ def title_task(*, location='title', selected=(A, B), visible=(B, OTHER, A), fail
 
 
 class TitleLoggedOutEntryTests(unittest.TestCase):
+    def test_failure_frame_ocr_replay_opens_initial_logged_out_picker(self):
+        fixture = json.loads((Path(__file__).parent / 'fixtures/title-logged-out-6f7db19b.json').read_text(encoding='utf-8'))
+        task, _ = title_task(location='logged-out')
+        task.logged_out = []
+        for corners, (text, confidence) in fixture['ocr']:
+            left = min(point[0] for point in corners) / fixture['width']
+            top = min(point[1] for point in corners) / fixture['height']
+            right = max(point[0] for point in corners) / fixture['width']
+            bottom = max(point[1] for point in corners) / fixture['height']
+            task.logged_out.append(SimpleNamespace(name=text, x=left, y=top,
+                width=right-left, height=bottom-top, confidence=confidence))
+        task._prepare_first_account_login()
+        self.assertEqual(task.location, 'login')
+        self.assertEqual(task.trace, [('title-login',)])
+        self.assertEqual(task.daily_calls, [])
+
     def test_observed_logout_sequence_reaches_only_requested_accounts(self):
         task, _ = title_task()
         task.run()
@@ -105,11 +122,35 @@ class TitleLoggedOutEntryTests(unittest.TestCase):
         self.assertEqual(task.trace, [('title-account',), ('title-logout',), ('title-login',)])
         self.assertEqual(task.daily_calls, [])
 
-    def test_initial_logged_out_page_without_own_logout_is_preserved(self):
+    def test_initial_logged_out_page_opens_picker_without_logout(self):
         task, _ = title_task(location='logged-out')
-        with self.assertRaisesRegex(WaitFailedException, 'account_login_screen_unavailable'):
+        task._prepare_first_account_login()
+        self.assertEqual(task.location, 'login')
+        self.assertEqual(task.trace, [('title-login',)])
+        self.assertEqual(task.daily_calls, [])
+
+    def test_initial_logged_out_page_runs_only_confirmed_requested_accounts(self):
+        task, _ = title_task(location='logged-out')
+        task.run()
+        self.assertEqual([entry['actualDisplay'] for entry in task.daily_calls], [A, B])
+        self.assertNotIn(('title-account',), task.trace)
+        self.assertNotIn(('title-logout',), task.trace)
+        self.assertEqual(task.trace.count(('title-login',)), 1)
+
+    def test_initial_logged_out_page_ineffective_click_is_not_retried(self):
+        task, _ = title_task(location='logged-out')
+        task.login_opens = False
+        with self.assertRaisesRegex(WaitFailedException, 'within 100 seconds'):
             task.run()
-        self.assertEqual(task.trace, [('setup',)])
+        self.assertEqual(task.trace.count(('title-login',)), 1)
+        self.assertEqual(task.daily_calls, [])
+
+    def test_initial_logged_out_page_revalidates_before_input(self):
+        task, _ = title_task(location='logged-out')
+        task.on_refresh = lambda current: current.extra.append(box('验证码', .5, .5))
+        with self.assertRaises(WaitFailedException):
+            task.run()
+        self.assertNotIn(('title-login',), task.trace)
         self.assertEqual(task.daily_calls, [])
 
     def test_unknown_verification_page_fails_without_input(self):
@@ -250,7 +291,7 @@ class TitleLoggedOutEntryTests(unittest.TestCase):
         self.assertIs(task._title_logged_out_login_entry(), task.logged_out[1])
 
     def test_known_static_text_cannot_qualify_inside_modal_region(self):
-        for text in ['鸣潮', 'WUTHERING WAVES', 'CN_Windows_Product_3.7.0_1 * HD',
+        for text in ['鸣潮', '呜潮', 'WUTHERING WAVES', 'CN_Windows_Product_3.7.0_1 * HD',
                      '16+', 'CADPA', '适龄提示', '登录状态：0']:
             task, _ = title_task(location='logged-out')
             task.extra = [box(text, .5, .5)]

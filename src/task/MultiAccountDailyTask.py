@@ -197,7 +197,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
                     self.log_info('Confirming recognized title-page logout once; saved-account selection still required')
                     self.click(confirmation, after_sleep=0.5)
                 return None
-            if logout_confirmed and not login_opened and self._title_logged_out_login_entry():
+            if not login_opened and self._title_logged_out_login_entry():
                 self.sleep(0.5)
                 self.next_frame()
                 if self._login_combo() or self.do_find_account_drop_down():
@@ -276,7 +276,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         return matched[-1]
 
     def _title_logged_out_login_entry(self):
-        # The observed CN page after logout has right-side Exit/Login/Settings.
+        # The observed CN logged-out page has right-side Exit/Login/Settings.
         # Qualify all three from one frame; never click through an account form
         # or modal, and never use the logged-in title's Connect action.
         texts = self.ocr()
@@ -297,7 +297,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         # text, including an unfamiliar challenge or error, blocks the click.
         # Match both text and location; do not guess from a modal keyword list.
         static_labels = (
-            (r'^(?:鸣潮|WUTHERING\s*WAVES)$', (0.0, 0.0, 0.14, 0.13)),
+            (r'^(?:[鸣呜]潮|WUTHERING\s*WAVES)$', (0.0, 0.0, 0.14, 0.13)),
             (r'^CN_Windows_Product_[0-9._]+(?:\s*\*\s*HD)?$', (0.45, 0.0, 1.0, 0.10)),
             (r'^(?:16\+|CADPA|适龄提示|登录状态[：:]\s*0)$', (0.90, 0.86, 1.0, 1.0)),
         )
