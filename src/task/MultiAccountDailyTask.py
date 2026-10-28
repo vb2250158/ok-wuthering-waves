@@ -298,6 +298,7 @@ class MultiAccountDailyTask(WWOneTimeTask, BaseCombatTask):
         # Match both text and location; do not guess from a modal keyword list.
         static_labels = (
             (r'^(?:[鸣呜]潮|WUTHERING\s*WAVES)$', (0.0, 0.0, 0.14, 0.13)),
+            (r'^G$', (0.93, 0.13, 0.97, 0.18)),
             (r'^CN_Windows_Product_[0-9._]+(?:\s*\*\s*HD)?$', (0.45, 0.0, 1.0, 0.10)),
             (r'^(?:16\+|CADPA|适龄提示|登录状态[：:]\s*0)$', (0.90, 0.86, 1.0, 1.0)),
         )

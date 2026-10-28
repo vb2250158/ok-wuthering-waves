@@ -85,7 +85,13 @@ def title_task(*, location='title', selected=(A, B), visible=(B, OTHER, A), fail
 
 class TitleLoggedOutEntryTests(unittest.TestCase):
     def test_failure_frame_ocr_replay_opens_initial_logged_out_picker(self):
-        fixture = json.loads((Path(__file__).parent / 'fixtures/title-logged-out-6f7db19b.json').read_text(encoding='utf-8'))
+        self.assert_failure_frame_opens_picker('title-logged-out-6f7db19b.json')
+
+    def test_exit_icon_noise_frame_opens_initial_logged_out_picker(self):
+        self.assert_failure_frame_opens_picker('title-logged-out-icon.json')
+
+    def assert_failure_frame_opens_picker(self, filename):
+        fixture = json.loads((Path(__file__).parent / 'fixtures' / filename).read_text(encoding='utf-8'))
         task, _ = title_task(location='logged-out')
         task.logged_out = []
         for corners, (text, confidence) in fixture['ocr']:
@@ -99,6 +105,16 @@ class TitleLoggedOutEntryTests(unittest.TestCase):
         self.assertEqual(task.location, 'login')
         self.assertEqual(task.trace, [('title-login',)])
         self.assertEqual(task.daily_calls, [])
+
+    def test_exit_icon_noise_is_allowed_only_in_exit_icon_bounds(self):
+        task, _ = title_task(location='logged-out')
+        task.extra = [box('G', .947, .155, confidence=.50)]
+        self.assertIs(task._title_logged_out_login_entry(), task.logged_out[1])
+        for name, horizontal, vertical in [('G', .5, .5), ('G', .947, .31),
+                                            ('unknown', .947, .155), ('验证码', .947, .155)]:
+            with self.subTest(name=name, horizontal=horizontal, vertical=vertical):
+                task.extra = [box(name, horizontal, vertical, confidence=.50)]
+                self.assertIsNone(task._title_logged_out_login_entry())
 
     def test_observed_logout_sequence_reaches_only_requested_accounts(self):
         task, _ = title_task()
